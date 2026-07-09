@@ -541,8 +541,22 @@
       </div>
     </div>
     <div id="ld-photo-panel" class="form-card" style="display:none;margin-bottom:20px;">
-      <h3>Original Log Photo</h3>
-      <img id="ld-photo-img" alt="Original log photo" style="max-width:100%;max-height:480px;object-fit:contain;border-radius:var(--radius);display:block;margin:0 auto;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:18px;padding-bottom:12px;border-bottom:1px solid var(--border);">
+        <h3 style="margin:0;padding:0;border:none;">Original Log Photo</h3>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-secondary btn-sm" onclick="rotatePhoto(-90)" title="Rotate left">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+            Rotate Left
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="rotatePhoto(90)" title="Rotate right">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Rotate Right
+          </button>
+        </div>
+      </div>
+      <div id="ld-photo-frame" style="display:flex;align-items:center;justify-content:center;overflow:hidden;height:480px;">
+        <img id="ld-photo-img" alt="Original log photo" style="max-width:100%;max-height:480px;object-fit:contain;border-radius:var(--radius);transition:transform .2s;">
+      </div>
     </div>
     <div class="form-card" id="ld-edit-card">
       <h3>Log Details</h3>
@@ -1111,6 +1125,30 @@ window.saveApiKey = () => {
   if (v) { localStorage.setItem('fll_api_key', v); showToast('API key saved.'); }
 };
 
+// Shared Anthropic system prompt — used for both the initial upload extraction
+// and the secret "redo" reanalyze feature, so results are always consistent.
+const LABOR_LOG_SYSTEM_PROMPT = `You are an expert at reading handwritten and printed paper labor logs from construction sites. Extract all data from the image and return ONLY valid JSON — no markdown, no explanation. IMPORTANT: For the "date" field, always output the date in strict YYYY-MM-DD format (for example, a log dated 6-14-26 or 6/14/26 must be returned as "2026-06-14"). The paper logs use US month-day-year order. If the year has two digits, assume 20YY. If you cannot read the date, use null. Schema: { "date": "string (YYYY-MM-DD) or null", "foreman": "string or null", "site": "string or null", "overall_legibility": "good" or "partial" or "poor", "ai_notes": "string", "job_type": "Packout" or "Packback" or "Other", "vehicles": "string or null", "num_dollies": number or null, "dumpster_size": "string or null", "workers": [ { "name": "string", "start_time": "string or null", "end_time": "string or null", "hours": number or null, "needs_review": true or false } ] }. For job_type, classify the log as one of: Packout (removing/packing contents out of a property), Packback (returning/replacing contents back into a property), or Other if it is neither or unclear. For the "vehicles" field, the company fleet is: K1 = 16ft Truck, K2 = Cargo Van, K3 = Cargo Van, K4 = 21ft Truck. When you see a truck code like K1, K2, K3, or K4, output it WITH its type, formatted like "K2 - Cargo Van". If several trucks are listed, separate them with a comma (e.g. "K1 - 16ft Truck, K4 - 21ft Truck"). If a rented or unknown vehicle is listed, keep it as written. Set needs_review: true for any row that was unclear or required a guess. For "ai_notes": keep it very short (one brief sentence, or leave as an empty string if there is nothing worth flagging). Only mention things that actually matter for someone reviewing this log later — for example a name or number you had to guess at, damage or an unusual condition visible in the photo, or something written on the log that doesn't fit the normal fields. Do NOT describe routine things like "the log was clear and easy to read" or restate data that is already captured in the other fields.`;
+
+// Calls the Anthropic API with a photo and returns the parsed extraction JSON.
+// Shared by the upload flow and the secret reanalyze feature.
+async function callAnthropicExtract(apiKey, base64, mediaType) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6', max_tokens: 1000,
+      system: LABOR_LOG_SYSTEM_PROMPT,
+      messages: [{ role:'user', content:[
+        { type:'image', source:{ type:'base64', media_type:mediaType||'image/jpeg', data:base64 } },
+        { type:'text', text:'Extract all labor log data from this image.' }
+      ]}]
+    })
+  });
+  if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error?.message||`API error ${res.status}`); }
+  const data = await res.json();
+  return JSON.parse(data.content[0].text.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim());
+}
+
 window.extractData = async () => {
   const apiKey = document.getElementById('api-key-input').value.trim();
   if (!apiKey || !selectedImageBase64) return;
@@ -1121,21 +1159,7 @@ window.extractData = async () => {
   document.getElementById('review-section').style.display = 'none';
   try {
     const mediaType = selectedImageType.startsWith('image/') ? selectedImageType : 'image/jpeg';
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6', max_tokens: 1000,
-        system: `You are an expert at reading handwritten and printed paper labor logs from construction sites. Extract all data from the image and return ONLY valid JSON — no markdown, no explanation. IMPORTANT: For the "date" field, always output the date in strict YYYY-MM-DD format (for example, a log dated 6-14-26 or 6/14/26 must be returned as "2026-06-14"). The paper logs use US month-day-year order. If the year has two digits, assume 20YY. If you cannot read the date, use null. Schema: { "date": "string (YYYY-MM-DD) or null", "foreman": "string or null", "site": "string or null", "overall_legibility": "good" or "partial" or "poor", "ai_notes": "string", "job_type": "Packout" or "Packback" or "Other", "vehicles": "string or null", "num_dollies": number or null, "dumpster_size": "string or null", "workers": [ { "name": "string", "start_time": "string or null", "end_time": "string or null", "hours": number or null, "needs_review": true or false } ] }. For job_type, classify the log as one of: Packout (removing/packing contents out of a property), Packback (returning/replacing contents back into a property), or Other if it is neither or unclear. For the "vehicles" field, the company fleet is: K1 = 16ft Truck, K2 = Cargo Van, K3 = Cargo Van, K4 = 21ft Truck. When you see a truck code like K1, K2, K3, or K4, output it WITH its type, formatted like "K2 - Cargo Van". If several trucks are listed, separate them with a comma (e.g. "K1 - 16ft Truck, K4 - 21ft Truck"). If a rented or unknown vehicle is listed, keep it as written. Set needs_review: true for any row that was unclear or required a guess. For "ai_notes": keep it very short (one brief sentence, or leave as an empty string if there is nothing worth flagging). Only mention things that actually matter for someone reviewing this log later — for example a name or number you had to guess at, damage or an unusual condition visible in the photo, or something written on the log that doesn't fit the normal fields. Do NOT describe routine things like "the log was clear and easy to read" or restate data that is already captured in the other fields.`,
-        messages: [{ role:'user', content:[
-          { type:'image', source:{ type:'base64', media_type:mediaType, data:selectedImageBase64 } },
-          { type:'text', text:'Extract all labor log data from this image.' }
-        ]}]
-      })
-    });
-    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error?.message||`API error ${res.status}`); }
-    const data = await res.json();
-    const extracted = JSON.parse(data.content[0].text.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim());
+    const extracted = await callAnthropicExtract(apiKey, selectedImageBase64, mediaType);
     populateReviewForm(extracted);
     document.getElementById('review-section').style.display = 'block';
     document.getElementById('review-section').scrollIntoView({ behavior:'smooth', block:'start' });
@@ -1295,12 +1319,15 @@ window.showLogDetail = async logId => {
   const photoPanel = document.getElementById('ld-photo-panel');
   const photoImg   = document.getElementById('ld-photo-img');
   photoBtn.style.display = 'none'; photoPanel.style.display = 'none';
+  window.currentPhotoRotation = log.photoRotation || 0;
   try {
     const imgSnap = await getDoc(doc(db,'logImages',logId));
     if (imgSnap.exists()) {
       photoImg.src = imgSnap.data().imageData;
       photoBtn.style.display = '';
       photoBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> View Photo';
+      // Apply saved rotation once the image has loaded (so we can measure the frame)
+      photoImg.onload = () => applyPhotoRotation(window.currentPhotoRotation, false);
     }
   } catch(e) { /* no image for this log */ }
 
@@ -1338,11 +1365,102 @@ window.toggleLogPhoto = () => {
   btn.innerHTML = hidden
     ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg> Hide Photo'
     : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> View Photo';
-  if (hidden) panel.scrollIntoView({ behavior:'smooth', block:'start' });
+  if (hidden) {
+    panel.scrollIntoView({ behavior:'smooth', block:'start' });
+    // Re-apply rotation now that the frame is visible and measurable
+    requestAnimationFrame(() => applyPhotoRotation(window.currentPhotoRotation || 0, false));
+  }
 };
+
+// Visually rotates the photo and, if it's a real 90° turn, resizes it so it
+// fits the frame without being clipped (swaps the width/height constraint).
+function applyPhotoRotation(deg, animate) {
+  const frame = document.getElementById('ld-photo-frame');
+  const img   = document.getElementById('ld-photo-img');
+  if (!img || !frame) return;
+  img.style.transition = animate ? 'transform .2s' : 'none';
+  img.style.transform = `rotate(${deg}deg)`;
+  const rect = frame.getBoundingClientRect();
+  const sideways = (((deg % 360) + 360) % 360) === 90 || (((deg % 360) + 360) % 360) === 270;
+  if (sideways) {
+    img.style.maxWidth  = rect.height + 'px';
+    img.style.maxHeight = rect.width + 'px';
+  } else {
+    img.style.maxWidth  = '100%';
+    img.style.maxHeight = rect.height + 'px';
+  }
+}
+
+// Rotate the photo by ±90° and save the new orientation immediately so it's
+// remembered next time this log is opened — no need to hit Save Changes.
+window.rotatePhoto = async (delta) => {
+  const current = window.currentPhotoRotation || 0;
+  const next = ((current + delta) % 360 + 360) % 360;
+  window.currentPhotoRotation = next;
+  applyPhotoRotation(next, true);
+  try {
+    await updateDoc(doc(db,'logs',window.currentLogId), { photoRotation: next });
+  } catch(e) { showToast('Could not save photo rotation: ' + e.message); }
+};
+
+// Secret feature: typing "redo" into the Foreman field and saving triggers a
+// full reanalysis of the log's original photo, refilling every field as if
+// the log had just been uploaded for the first time.
+async function reanalyzeCurrentLog(silent) {
+  setSyncing();
+  try {
+    const apiKey = localStorage.getItem('fll_api_key');
+    if (!apiKey) { showToast('No saved API key — open Upload Log once to enter one, then try again.'); return false; }
+
+    const imgSnap = await getDoc(doc(db,'logImages',window.currentLogId));
+    if (!imgSnap.exists()) { showToast('No photo saved for this log — cannot reanalyze.'); return false; }
+    const dataUrl = imgSnap.data().imageData || '';
+    const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!m) { showToast('Saved photo is in an unexpected format.'); return false; }
+    const [, mediaType, base64] = m;
+
+    if (!silent) showToast('Reanalyzing photo…');
+    const extracted = await callAnthropicExtract(apiKey, base64, mediaType);
+
+    const workers = (extracted.workers||[]).map(w => ({
+      id: Math.random().toString(36).slice(2),
+      name: w.name || '',
+      startTime: w.start_time || '',
+      endTime: w.end_time || '',
+      hours: w.hours != null ? w.hours : null,
+      needsReview: !!w.needs_review
+    }));
+
+    await updateDoc(doc(db,'logs',window.currentLogId), {
+      date:         normalizeDate(extracted.date) || extracted.date || '',
+      foreman:      extracted.foreman || '',
+      site:         extracted.site || '',
+      jobType:      ['Packout','Packback','Other'].includes(extracted.job_type) ? extracted.job_type : 'Other',
+      legibility:   (extracted.overall_legibility || 'good').toLowerCase(),
+      vehicles:     expandVehicles(extracted.vehicles || ''),
+      numDollies:   extracted.num_dollies != null ? extracted.num_dollies : null,
+      dumpsterSize: extracted.dumpster_size || '',
+      aiNotes:      extracted.ai_notes || '',
+      workers
+      // Note: photoRotation is intentionally left untouched — reanalysis only
+      // refreshes AI-derived content, not the saved viewing orientation.
+    });
+
+    showSuccess('Log reanalyzed from photo');
+    await window.showLogDetail(window.currentLogId); // reload the form with fresh data
+    return true;
+  } catch(e) {
+    showToast('Reanalyze failed: ' + e.message);
+    return false;
+  }
+}
 
 // Shared save logic used by both the explicit Save button and "Back to Project"
 async function persistLogEdits(silent) {
+  const foremanRaw = document.getElementById('ld-foreman').value.trim();
+  if (foremanRaw.toLowerCase() === 'redo') {
+    return await reanalyzeCurrentLog(silent);
+  }
   setSyncing();
   try {
     await updateDoc(doc(db,'logs',window.currentLogId), {
