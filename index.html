@@ -83,6 +83,14 @@
 
   /* Project grid */
   #projects-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;}
+  .projects-toolbar{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;}
+  .search-wrap{position:relative;flex:1;min-width:200px;}
+  .search-wrap .search-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--ink-faint);pointer-events:none;}
+  #project-search{width:100%;height:42px;padding:0 12px 0 38px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:.9rem;background:var(--panel);color:var(--ink);}
+  #project-search:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.15);}
+  #project-sort{height:42px;padding:0 12px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:.85rem;background:var(--panel);color:var(--ink);cursor:pointer;font-weight:600;}
+  #project-sort:focus{outline:none;border-color:var(--blue);}
+  @media(max-width:640px){.search-wrap{min-width:100%;}#project-sort{width:100%;}}
   .project-card .card-inner{padding:18px 20px;}
   .project-card .card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;}
   .project-card .card-name{font-size:1rem;font-weight:700;color:var(--ink);line-height:1.3;}
@@ -197,6 +205,10 @@
   .project-meta .pm-val{font-size:.95rem;color:var(--ink);font-weight:500;}
 
   /* Delete row button */
+  .copy-btn-group{display:flex;gap:4px;}
+  .copy-btn{padding:4px 8px;font-size:.72rem;font-weight:600;border:1.5px solid var(--border-mid);background:var(--panel);color:var(--ink-muted);border-radius:4px;cursor:pointer;white-space:nowrap;transition:background .12s,border-color .12s,color .12s;}
+  .copy-btn:hover{background:var(--blue-light);border-color:var(--blue);color:var(--blue-dark);}
+  .copy-btn.copied{background:var(--green);border-color:var(--green);color:#fff;}
   .delete-row-btn{width:30px;height:30px;display:flex;align-items:center;justify-content:center;border:none;background:none;color:var(--ink-faint);cursor:pointer;border-radius:4px;transition:background .12s,color .12s;}
   .delete-row-btn:hover{background:var(--red-light);color:var(--red);}
 
@@ -254,6 +266,17 @@
           New Project
         </button>
       </div>
+    </div>
+    <div class="projects-toolbar">
+      <div class="search-wrap">
+        <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="project-search" placeholder="Search projects or clients..." oninput="renderProjects()">
+      </div>
+      <select id="project-sort" onchange="renderProjects()">
+        <option value="created">Date Created (newest)</option>
+        <option value="edited">Last Edited</option>
+        <option value="alpha">Name (A–Z)</option>
+      </select>
     </div>
     <div id="new-project-form" class="form-card" style="display:none;">
       <h3>New Project</h3>
@@ -343,7 +366,7 @@
     <div class="section-label">Labor Logs</div>
     <div id="pd-logs-wrap" class="table-wrap">
       <table>
-        <thead><tr><th>Date</th><th>Job Type</th><th>Foreman</th><th>Site</th><th>Workers</th><th>Total Hrs</th><th>Legibility</th><th>Signed</th><th></th></tr></thead>
+        <thead><tr><th>Date</th><th>Job Type</th><th>Foreman</th><th>Site</th><th>Workers</th><th>Total Hrs</th><th>Legibility</th><th>Signed</th><th>Copy for Summary</th><th></th></tr></thead>
         <tbody id="pd-logs-body"></tbody>
       </table>
     </div>
@@ -437,7 +460,7 @@
       <div class="form-card">
         <h3>Equipment &amp; Resources</h3>
         <div class="form-row">
-          <div class="field"><label>Vehicles Used</label><input type="text" id="rev-vehicles" placeholder="e.g. F-250, box truck"></div>
+          <div class="field"><label>Vehicles Used</label><input type="text" id="rev-vehicles" placeholder="e.g. K2 - Cargo Van"></div>
           <div class="field"><label>Number of Dollies</label><input type="number" id="rev-dollies" min="0" placeholder="0"></div>
         </div>
         <div class="form-row">
@@ -527,7 +550,7 @@
         <div class="field"></div>
       </div>
       <div class="form-row">
-        <div class="field"><label>Vehicles Used</label><input type="text" id="ld-vehicles" placeholder="e.g. F-250, box truck"></div>
+        <div class="field"><label>Vehicles Used</label><input type="text" id="ld-vehicles" placeholder="e.g. K2 - Cargo Van"></div>
         <div class="field"><label>Number of Dollies</label><input type="number" id="ld-dollies" min="0" placeholder="0"></div>
       </div>
       <div class="form-row">
@@ -578,7 +601,7 @@ const db  = getFirestore(app);
 
 // ── Google Drive config ──────────────────────────────────
 // Paste the OAuth Client ID you create in Google Cloud Console here:
-const GOOGLE_CLIENT_ID = "918611231274-rf26kc1fb873vmepoofu9th64fhsv4ej.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID = "PASTE_YOUR_CLIENT_ID_HERE.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file";
 let driveTokenClient = null;
 let driveAccessToken = null;
@@ -670,7 +693,31 @@ function renderProjects() {
     </div>`;
     return;
   }
-  grid.innerHTML = allProjects.slice().reverse().map(p => {
+  // Search filter
+  const term = (document.getElementById('project-search')?.value || '').trim().toLowerCase();
+  let list = allProjects.filter(p => {
+    if (!term) return true;
+    return (p.name||'').toLowerCase().includes(term)
+        || (p.client||'').toLowerCase().includes(term)
+        || (p.address||'').toLowerCase().includes(term);
+  });
+
+  // Sort
+  const sortBy = document.getElementById('project-sort')?.value || 'created';
+  list.sort((a,b) => {
+    if (sortBy === 'alpha')  return (a.name||'').localeCompare(b.name||'');
+    if (sortBy === 'edited') return String(b.lastEdited||b.createdAt||'').localeCompare(String(a.lastEdited||a.createdAt||''));
+    return String(b.createdAt||'').localeCompare(String(a.createdAt||'')); // created, newest first
+  });
+
+  if (!list.length) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">
+      <div class="empty-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
+      <h3>No matches</h3><p>No projects match your search.</p></div>`;
+    return;
+  }
+
+  grid.innerHTML = list.map(p => {
     const pLogs = allLogs.filter(l => l.projectId === p.id);
     const hrs   = pLogs.reduce((s,l)=>s+(l.workers||[]).reduce((a,w)=>a+(parseFloat(w.hours)||0),0),0);
     return `<div class="card card-clickable project-card" onclick="showProjectDetail('${p.id}')">
@@ -706,12 +753,14 @@ window.createProject = async () => {
   if (!name) { document.getElementById('np-name').focus(); return; }
   setSyncing();
   try {
+    const now = new Date().toISOString();
     await addDoc(projectsCol, {
       name,
       client:    document.getElementById('np-client').value.trim(),
       address:   document.getElementById('np-address').value.trim(),
       status:    document.getElementById('np-status').value,
-      createdAt: new Date().toISOString()
+      createdAt: now,
+      lastEdited: now
     });
     window.hideNewProjectForm();
   } catch(e) { showToast('Error: ' + e.message); }
@@ -895,10 +944,12 @@ window.saveProjectEdits = async () => {
       address: document.getElementById('ep-address').value.trim(),
       status:  document.getElementById('ep-status').value,
       driveFolderId:   folderId,
-      driveFolderName: folderName
+      driveFolderName: folderName,
+      lastEdited: new Date().toISOString()
     });
     window.hideEditProjectForm();
     window.showProjectDetail(window.currentProjectId);
+    showSuccess('Project updated');
   } catch(e) { showToast('Error saving project: ' + e.message); }
 };
 
@@ -928,7 +979,16 @@ window.showProjectDetail = (projectId) => {
   if (!logs.length) { wrap.style.display='none'; empty.style.display='block'; }
   else {
     wrap.style.display='block'; empty.style.display='none';
-    tbody.innerHTML = logs.slice().reverse().map(l => {
+    // Sort logs by their labor-log date (newest first); undated logs sink to the bottom
+    const sortedLogs = logs.slice().sort((a,b) => {
+      const da = normalizeDate(a.date) || '';
+      const dbb = normalizeDate(b.date) || '';
+      if (da && dbb) return dbb.localeCompare(da);
+      if (da && !dbb) return -1;
+      if (!da && dbb) return 1;
+      return String(b.createdAt||'').localeCompare(String(a.createdAt||''));
+    });
+    tbody.innerHTML = sortedLogs.map(l => {
       const lHrs = (l.workers||[]).reduce((s,w)=>s+(parseFloat(w.hours)||0),0);
       return `<tr>
         <td>${l.date||'&#8212;'}</td>
@@ -939,6 +999,13 @@ window.showProjectDetail = (projectId) => {
         <td style="font-family:var(--font-mono)">${lHrs.toFixed(1)}</td>
         <td>${legibilityBadge(l.legibility)}</td>
         <td>${l.signed?'<span style="color:var(--green)">&#10003;</span>':'<span style="color:var(--ink-faint)">&#8212;</span>'}</td>
+        <td>
+          <div class="copy-btn-group">
+            <button class="copy-btn" onclick="copyLaborRow(event,'${l.id}')" title="Copy labor log row">Labor</button>
+            <button class="copy-btn" onclick="copyEquipmentRow(event,'${l.id}')" title="Copy equipment usage row">Equip</button>
+            <button class="copy-btn" onclick="copyContainerRow(event,'${l.id}')" title="Copy container row">Container</button>
+          </div>
+        </td>
         <td><button class="btn btn-secondary btn-sm" onclick="showLogDetail('${l.id}')">View</button></td>
       </tr>`;
     }).join('');
@@ -1029,7 +1096,7 @@ window.extractData = async () => {
       headers: { 'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true' },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6', max_tokens: 1000,
-        system: `You are an expert at reading handwritten and printed paper labor logs from construction sites. Extract all data from the image and return ONLY valid JSON — no markdown, no explanation. Schema: { "date": "string or null", "foreman": "string or null", "site": "string or null", "signed": true or false, "overall_legibility": "good" or "partial" or "poor", "ai_notes": "string", "job_type": "Packout" or "Packback" or "Other", "vehicles": "string or null", "num_dollies": number or null, "dumpster_size": "string or null", "workers": [ { "name": "string", "start_time": "string or null", "end_time": "string or null", "hours": number or null, "needs_review": true or false } ] }. For job_type, classify the log as one of: Packout (removing/packing contents out of a property), Packback (returning/replacing contents back into a property), or Other if it is neither or unclear. Set needs_review: true for any row that was unclear or required a guess.`,
+        system: `You are an expert at reading handwritten and printed paper labor logs from construction sites. Extract all data from the image and return ONLY valid JSON — no markdown, no explanation. IMPORTANT: For the "date" field, always output the date in strict YYYY-MM-DD format (for example, a log dated 6-14-26 or 6/14/26 must be returned as "2026-06-14"). The paper logs use US month-day-year order. If the year has two digits, assume 20YY. If you cannot read the date, use null. Schema: { "date": "string (YYYY-MM-DD) or null", "foreman": "string or null", "site": "string or null", "signed": true or false, "overall_legibility": "good" or "partial" or "poor", "ai_notes": "string", "job_type": "Packout" or "Packback" or "Other", "vehicles": "string or null", "num_dollies": number or null, "dumpster_size": "string or null", "workers": [ { "name": "string", "start_time": "string or null", "end_time": "string or null", "hours": number or null, "needs_review": true or false } ] }. For job_type, classify the log as one of: Packout (removing/packing contents out of a property), Packback (returning/replacing contents back into a property), or Other if it is neither or unclear. For the "vehicles" field, the company fleet is: K1 = 16ft Truck, K2 = Cargo Van, K3 = Cargo Van, K4 = 21ft Truck. When you see a truck code like K1, K2, K3, or K4, output it WITH its type, formatted like "K2 - Cargo Van". If several trucks are listed, separate them with a comma (e.g. "K1 - 16ft Truck, K4 - 21ft Truck"). If a rented or unknown vehicle is listed, keep it as written. Set needs_review: true for any row that was unclear or required a guess.`,
         messages: [{ role:'user', content:[
           { type:'image', source:{ type:'base64', media_type:mediaType, data:selectedImageBase64 } },
           { type:'text', text:'Extract all labor log data from this image.' }
@@ -1054,34 +1121,70 @@ window.extractData = async () => {
 };
 
 // Normalize many date formats to YYYY-MM-DD for <input type="date">.
-// Handles "6-14-26", "06/14/2026", "2026-06-14", "June 14 2026", etc.
-function normalizeDate(raw) {
+// US month-day-year assumption. Handles "6-14-26", "06/14/2026",
+// "2026-06-14", "June 14, 2026", "14 June 2026", etc.
+// Expand company truck codes to "CODE - Type". Safety net in case the AI
+// or a human types just "K2". Leaves rented/unknown vehicles untouched.
+const TRUCK_TYPES = { K1: '16ft Truck', K2: 'Cargo Van', K3: 'Cargo Van', K4: '21ft Truck' };
+function expandVehicles(raw) {
   if (!raw) return '';
-  const s = String(raw).trim();
-  // Already ISO YYYY-MM-DD
-  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  return String(raw).split(',').map(part => {
+    let t = part.trim();
+    if (!t) return '';
+    // Match a leading K-code, optionally already followed by a type
+    const m = t.match(/^(K[1-4])\b\s*(?:[-–:]\s*(.*))?$/i);
+    if (m) {
+      const code = m[1].toUpperCase();
+      const type = TRUCK_TYPES[code];
+      // Always normalize to "CODE - Type" regardless of what followed
+      return type ? `${code} - ${type}` : t;
+    }
+    return t;
+  }).filter(Boolean).join(', ');
+}
+
+function normalizeDate(raw) {
+  if (raw == null) return '';
+  let s = String(raw).trim();
+  if (!s) return '';
+
+  // 1) Already ISO YYYY-MM-DD (or YYYY/MM/DD)
+  let m = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
   if (m) {
-    const y = m[1], mo = String(m[2]).padStart(2,'0'), d = String(m[3]).padStart(2,'0');
-    return `${y}-${mo}-${d}`;
+    const y = +m[1], mo = +m[2], d = +m[3];
+    if (mo>=1&&mo<=12&&d>=1&&d<=31) return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
   }
-  // M-D-Y or M/D/Y (with 2- or 4-digit year), separators - / or .
+
+  // 2) Numeric M-D-Y / M/D/Y / M.D.Y (2- or 4-digit year), US order
   m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
   if (m) {
-    let mo = parseInt(m[1],10), d = parseInt(m[2],10), y = parseInt(m[3],10);
-    if (y < 100) y += 2000; // "26" -> 2026
-    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
-      return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    let mo = +m[1], d = +m[2], y = +m[3];
+    if (y < 100) y += 2000;
+    // If first number is clearly not a month but second is, swap (handles D-M-Y slips)
+    if (mo > 12 && d <= 12) { const t = mo; mo = d; d = t; }
+    if (mo>=1&&mo<=12&&d>=1&&d<=31) return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  }
+
+  // 3) Written-out months, e.g. "June 14, 2026", "Jun 14 26", "14 June 2026"
+  const MONTHS = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,sept:9,oct:10,nov:11,dec:12};
+  const low = s.toLowerCase().replace(/,/g,' ').replace(/\s+/g,' ').trim();
+  let parts = low.split(' ');
+  if (parts.length >= 2) {
+    // find a month word
+    let moIdx = parts.findIndex(p => MONTHS[p.slice(0,4)] || MONTHS[p.slice(0,3)]);
+    if (moIdx !== -1) {
+      const mo = MONTHS[parts[moIdx].slice(0,4)] || MONTHS[parts[moIdx].slice(0,3)];
+      const nums = parts.filter((p,i)=>i!==moIdx).map(p=>parseInt(p,10)).filter(n=>!isNaN(n));
+      if (nums.length) {
+        let d = nums.find(n=>n>=1&&n<=31) || nums[0];
+        let y = nums.find(n=>n>31) || (nums.length>1?nums[1]:new Date().getFullYear());
+        if (y < 100) y += 2000;
+        if (mo>=1&&mo<=12&&d>=1&&d<=31) return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      }
     }
   }
-  // Fallback: let JS try (handles "June 14, 2026" etc.), using LOCAL time to avoid off-by-one
-  const parsed = new Date(s);
-  if (!isNaN(parsed)) {
-    const y = parsed.getFullYear();
-    const mo = String(parsed.getMonth()+1).padStart(2,'0');
-    const d = String(parsed.getDate()).padStart(2,'0');
-    return `${y}-${mo}-${d}`;
-  }
-  return ''; // unparseable — leave blank so user can fill manually
+
+  return ''; // unparseable — leave blank so user fills it in manually
 }
 
 function populateReviewForm(x) {
@@ -1091,7 +1194,7 @@ function populateReviewForm(x) {
   document.getElementById('rev-site').value           = x.site    || '';
   document.getElementById('rev-signed').checked       = !!x.signed;
   document.getElementById('rev-jobtype').value        = ['Packout','Packback','Other'].includes(x.job_type) ? x.job_type : 'Other';
-  document.getElementById('rev-vehicles').value       = x.vehicles || '';
+  document.getElementById('rev-vehicles').value       = expandVehicles(x.vehicles || '');
   document.getElementById('rev-dollies').value        = x.num_dollies != null ? x.num_dollies : '';
   document.getElementById('rev-dumpster').value       = x.dumpster_size || '';
   document.getElementById('rev-ai-notes-inline').value = x.ai_notes || '';
@@ -1118,13 +1221,14 @@ window.saveLog = async () => {
       jobType:     document.getElementById('rev-jobtype').value,
       legibility:  document.getElementById('rev-legibility').value.toLowerCase(),
       aiNotes:     document.getElementById('rev-ai-notes-inline').value.trim(),
-      vehicles:    document.getElementById('rev-vehicles').value.trim(),
+      vehicles:    expandVehicles(document.getElementById('rev-vehicles').value.trim()),
       numDollies:  document.getElementById('rev-dollies').value !== '' ? Number(document.getElementById('rev-dollies').value) : null,
       dumpsterSize: document.getElementById('rev-dumpster').value.trim(),
       createdAt:   new Date().toISOString(),
       workers
     };
     const logRef = await addDoc(logsCol, logData);
+    try { await updateDoc(doc(db,'projects',window.currentProjectId), { lastEdited: new Date().toISOString() }); } catch(e){}
     if (selectedImageBase64) {
       // Store compressed image in Firestore (kept small by canvas compression above)
       await setDoc(doc(db,'logImages',logRef.id), {
@@ -1141,6 +1245,7 @@ window.saveLog = async () => {
       }
     }
     window.showProjectDetail(window.currentProjectId);
+    showSuccess('Log saved');
   } catch(e) { showToast('Error saving log: ' + e.message); }
   finally {
     btn.disabled = false;
@@ -1219,7 +1324,7 @@ window.saveLogEdits = async () => {
       signed:       document.getElementById('ld-signed').checked,
       jobType:      document.getElementById('ld-jobtype').value,
       legibility:   document.getElementById('ld-legibility').value,
-      vehicles:     document.getElementById('ld-vehicles').value.trim(),
+      vehicles:     expandVehicles(document.getElementById('ld-vehicles').value.trim()),
       numDollies:   document.getElementById('ld-dollies').value !== '' ? Number(document.getElementById('ld-dollies').value) : null,
       dumpsterSize: document.getElementById('ld-dumpster').value.trim(),
       aiNotes:      document.getElementById('ld-ai-notes').value.trim(),
@@ -1228,9 +1333,7 @@ window.saveLogEdits = async () => {
     // Refresh sub-header foreman name live
     document.getElementById('ld-title').textContent = 'Log — ' + (document.getElementById('ld-date').value || 'Log');
     document.getElementById('ld-sub').textContent   = document.getElementById('ld-foreman').value.trim() ? 'Foreman: ' + document.getElementById('ld-foreman').value.trim() : '';
-    const ok = document.getElementById('ld-save-success');
-    ok.style.display = 'block';
-    setTimeout(() => ok.style.display = 'none', 2500);
+    showSuccess('Changes saved');
   } catch(e) { showToast('Error: ' + e.message); }
 };
 
@@ -1393,6 +1496,93 @@ function legibilityBadge(l) {
   return `<span class="badge badge-gray">${esc(l||'&#8212;')}</span>`;
 }
 function formatDate(iso) { if(!iso) return '&#8212;'; try { return new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); } catch { return iso; } }
+// ── Copy-for-summary helpers (tab-separated, one row per log) ─────
+function logTotalHours(l) {
+  return (l.workers||[]).reduce((s,w)=>s+(parseFloat(w.hours)||0),0);
+}
+function copyToClipboard(text, btn) {
+  const done = () => {
+    if (btn) {
+      const orig = btn.textContent;
+      btn.classList.add('copied'); btn.textContent = '✓';
+      setTimeout(()=>{ btn.classList.remove('copied'); btn.textContent = orig; }, 1200);
+    }
+    showSuccess('Copied — paste into the summary sheet');
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(()=>fallbackCopy(text, done));
+  } else { fallbackCopy(text, done); }
+}
+function fallbackCopy(text, done) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try { document.execCommand('copy'); done && done(); } catch(e) { showToast('Copy failed — select and copy manually'); }
+  document.body.removeChild(ta);
+}
+
+// Labor Log row: Date, Job Type, Foreman, Site, # Workers, Total Hours, worker names
+window.copyLaborRow = (ev, logId) => {
+  const l = allLogs.find(x=>x.id===logId); if (!l) return;
+  const names = (l.workers||[]).map(w=>w.name).filter(Boolean).join(', ');
+  const row = [
+    normalizeDate(l.date) || l.date || '',
+    l.jobType || '',
+    l.foreman || '',
+    l.site || '',
+    (l.workers||[]).length,
+    logTotalHours(l).toFixed(2),
+    names
+  ].join('\t');
+  copyToClipboard(row, ev.currentTarget);
+};
+
+// Equipment usage row: Date, Job Type, Vehicles, Dollies
+window.copyEquipmentRow = (ev, logId) => {
+  const l = allLogs.find(x=>x.id===logId); if (!l) return;
+  const row = [
+    normalizeDate(l.date) || l.date || '',
+    l.jobType || '',
+    l.vehicles || '',
+    (l.numDollies!=null ? l.numDollies : '')
+  ].join('\t');
+  copyToClipboard(row, ev.currentTarget);
+};
+
+// Container row: Date, Job Type, Dumpster Size
+window.copyContainerRow = (ev, logId) => {
+  const l = allLogs.find(x=>x.id===logId); if (!l) return;
+  const row = [
+    normalizeDate(l.date) || l.date || '',
+    l.jobType || '',
+    l.dumpsterSize || ''
+  ].join('\t');
+  copyToClipboard(row, ev.currentTarget);
+};
+
+// Prominent, always-visible confirmation banner (centered top of screen).
+function showSuccess(msg) {
+  let el = document.getElementById('global-success-banner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'global-success-banner';
+    Object.assign(el.style, {
+      position:'fixed', top:'68px', left:'50%', transform:'translateX(-50%) translateY(-20px)',
+      background:'#16A34A', color:'#fff', padding:'12px 24px', borderRadius:'10px',
+      fontSize:'.95rem', fontWeight:'700', zIndex:'10000',
+      boxShadow:'0 8px 24px rgba(22,163,74,.4)', opacity:'0',
+      transition:'opacity .25s, transform .25s', display:'flex', alignItems:'center', gap:'8px',
+      maxWidth:'90vw', textAlign:'center'
+    });
+    document.body.appendChild(el);
+  }
+  el.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' + msg;
+  requestAnimationFrame(() => { el.style.opacity='1'; el.style.transform='translateX(-50%) translateY(0)'; });
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.opacity='0'; el.style.transform='translateX(-50%) translateY(-20px)'; }, 3000);
+}
+window.showSuccess = showSuccess;
+
 function showToast(msg) {
   const t = document.createElement('div');
   t.textContent = msg;
