@@ -131,7 +131,20 @@
   .chip-blue .chip-val{color:var(--blue);}
 
   /* Tables */
-  .table-wrap{overflow-x:auto;border-radius:var(--radius-lg);border:1.5px solid var(--border);background:var(--panel);box-shadow:var(--shadow-sm);}
+  .table-wrap{overflow-x:auto;border-radius:var(--radius-lg);border:1.5px solid var(--border);background:var(--panel);box-shadow:var(--shadow-sm);-webkit-overflow-scrolling:touch;}
+  /* Always-visible scrollbar so users know the table scrolls sideways */
+  .table-wrap::-webkit-scrollbar{height:10px;}
+  .table-wrap::-webkit-scrollbar-track{background:var(--surface);border-radius:0 0 var(--radius-lg) var(--radius-lg);}
+  .table-wrap::-webkit-scrollbar-thumb{background:var(--border-mid);border-radius:6px;}
+  .table-wrap::-webkit-scrollbar-thumb:hover{background:var(--ink-faint);}
+  /* Keep the logs table from crushing columns; forces horizontal scroll instead of cut-off */
+  #pd-logs-wrap table{min-width:900px;}
+  /* Pin the last column (View button) so it stays reachable while scrolling */
+  #pd-logs-wrap thead th:last-child,
+  #pd-logs-wrap tbody td:last-child{position:sticky;right:0;background:var(--panel);box-shadow:-6px 0 8px -6px rgba(0,0,0,.12);}
+  #pd-logs-wrap thead th:last-child{background:var(--slate-800);}
+  .scroll-hint{font-size:.72rem;color:var(--ink-faint);margin:6px 2px 0;display:none;}
+  @media(max-width:760px){.scroll-hint{display:block;}}
   table{width:100%;border-collapse:collapse;font-size:.875rem;}
   thead tr{background:var(--slate-800);color:#fff;}
   thead th{padding:11px 14px;text-align:left;font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;}
@@ -366,10 +379,11 @@
     <div class="section-label">Labor Logs</div>
     <div id="pd-logs-wrap" class="table-wrap">
       <table>
-        <thead><tr><th>Date</th><th>Job Type</th><th>Foreman</th><th>Site</th><th>Workers</th><th>Total Hrs</th><th>Legibility</th><th>Signed</th><th>Copy for Summary</th><th></th></tr></thead>
+        <thead><tr><th>Date</th><th>Job Type</th><th>Foreman</th><th>Site</th><th>Workers</th><th>Total Hrs</th><th>Legibility</th><th>Signed</th><th>Copy for Summary</th><th>Open</th></tr></thead>
         <tbody id="pd-logs-body"></tbody>
       </table>
     </div>
+    <div class="scroll-hint">&#8592; Swipe sideways to see all columns &#8594;</div>
     <div id="pd-empty" class="empty-state" style="display:none;">
       <div class="empty-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
       <h3>No logs yet</h3>
@@ -683,6 +697,7 @@ window.showView = name => {
 };
 
 // ── Projects ──────────────────────────────────────────────
+window.renderProjects = renderProjects;
 function renderProjects() {
   const grid = document.getElementById('projects-grid');
   if (!allProjects.length) {
@@ -1001,9 +1016,8 @@ window.showProjectDetail = (projectId) => {
         <td>${l.signed?'<span style="color:var(--green)">&#10003;</span>':'<span style="color:var(--ink-faint)">&#8212;</span>'}</td>
         <td>
           <div class="copy-btn-group">
-            <button class="copy-btn" onclick="copyLaborRow(event,'${l.id}')" title="Copy labor log row">Labor</button>
-            <button class="copy-btn" onclick="copyEquipmentRow(event,'${l.id}')" title="Copy equipment usage row">Equip</button>
-            <button class="copy-btn" onclick="copyContainerRow(event,'${l.id}')" title="Copy container row">Container</button>
+            <button class="copy-btn" onclick="copyLaborRow(event,'${l.id}')" title="Copy Labor Log row for the summary sheet">Labor Log</button>
+            <button class="copy-btn" onclick="copyEquipmentRow(event,'${l.id}')" title="Copy Equipment Usage & Container row for the summary sheet">Equip &amp; Container</button>
           </div>
         </td>
         <td><button class="btn btn-secondary btn-sm" onclick="showLogDetail('${l.id}')">View</button></td>
@@ -1353,18 +1367,102 @@ window.deleteLog = async () => {
 window.exportCSV = () => {
   const logs = allLogs.filter(l => l.projectId === window.currentProjectId);
   if (!logs.length) { alert('No logs to export.'); return; }
-  const rows = [['Log Date','Job Type','Foreman','Site','Vehicles','Dollies','Dumpster Size','Worker Name','Start Time','End Time','Hours','Needs Review']];
-  logs.forEach(l => (l.workers||[]).forEach(w =>
-    rows.push([l.date||'',l.jobType||'',l.foreman||'',l.site||'',l.vehicles||'',l.numDollies!=null?l.numDollies:'',l.dumpsterSize||'',w.name||'',w.startTime||'',w.endTime||'',w.hours||'',w.needsReview?'Yes':'No'])
+  const p = allProjects.find(x=>x.id===window.currentProjectId) || {};
+
+  // Sort logs by date (oldest first) so the export reads chronologically like the sheet
+  const sorted = logs.slice().sort((a,b) => (normalizeDate(a.date)||'').localeCompare(normalizeDate(b.date)||''));
+
+  const rows = [];
+  const blank = () => rows.push([]);
+
+  // ── Header block (mirrors the top of the Job Summary sheet) ──
+  rows.push(['JOB SUMMARY EXPORT']);
+  rows.push(['Project', p.name || '']);
+  rows.push(['Client', p.client || '']);
+  rows.push(['Site Address', p.address || '']);
+  rows.push(['Status', p.status || '']);
+  rows.push(['Exported', new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})]);
+  blank();
+
+  // ── LABOR LOG section ──
+  rows.push(['LABOR LOG']);
+  rows.push(['Date','Job Type','Load & Depart Time','Return & Unload Time','Total Hours','Total # of Technicians','Tech Hours','Total # of Supervisors','Supervisor Hours','Team / Members','Foreman','Signed','Legibility']);
+  let grandHours = 0, grandTechs = 0;
+  sorted.forEach(l => {
+    const workers = l.workers || [];
+    const starts = workers.map(w=>w.startTime).filter(Boolean);
+    const ends   = workers.map(w=>w.endTime).filter(Boolean);
+    const totalHrs = workers.reduce((s,w)=>s+(parseFloat(w.hours)||0),0);
+    grandHours += totalHrs; grandTechs += workers.length;
+    rows.push([
+      normalizeDate(l.date) || l.date || '',
+      l.jobType || '',
+      starts.length ? starts[0] : '',
+      ends.length ? ends[ends.length-1] : '',
+      totalHrs.toFixed(2),
+      workers.length,
+      totalHrs.toFixed(2),
+      '',  // supervisors (manual)
+      '',  // supervisor hours (manual)
+      workers.map(w=>w.name).filter(Boolean).join(', '),
+      l.foreman || '',
+      l.signed ? 'Yes' : 'No',
+      l.legibility || ''
+    ]);
+  });
+  rows.push(['TOTAL','','','',grandHours.toFixed(2),grandTechs,grandHours.toFixed(2),'','','','','','']);
+  blank();
+
+  // ── Per-worker detail (kept for payroll — one row per technician) ──
+  rows.push(['LABOR DETAIL (per technician)']);
+  rows.push(['Date','Job Type','Foreman','Worker Name','Start Time','End Time','Hours','Needs Review']);
+  sorted.forEach(l => (l.workers||[]).forEach(w =>
+    rows.push([
+      normalizeDate(l.date) || l.date || '',
+      l.jobType || '',
+      l.foreman || '',
+      w.name || '',
+      w.startTime || '',
+      w.endTime || '',
+      (w.hours!=null?w.hours:''),
+      w.needsReview ? 'Yes' : 'No'
+    ])
   ));
-  const csv  = rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const blob = new Blob([csv],{type:'text/csv'});
+  blank();
+
+  // ── EQUIPMENT USAGE & CONTAINER LOG section ──
+  rows.push(['EQUIPMENT USAGE & CONTAINER LOG']);
+  rows.push(['Date','Job Type','VAN (K2/K3)','K1 16-20ft Box Truck','K4 21-24ft Box Truck','Other/Rented Vehicle','Dumpster Used?','Dumpster Size','Furniture Dollies']);
+  sorted.forEach(l => {
+    const v = (l.vehicles || '').toUpperCase();
+    const hasVan = (v.includes('VAN') || v.includes('K2') || v.includes('K3')) ? 'X' : '';
+    const hasK1  = v.includes('K1') ? 'X' : '';
+    const hasK4  = v.includes('K4') ? 'X' : '';
+    // Anything that isn't a known K-code / van = treat as other/rented
+    const known = /^(\s*(K[1-4]|VAN|CARGO VAN|16FT TRUCK|21FT TRUCK)\s*(-\s*[A-Z0-9 ]+)?,?)+$/i.test((l.vehicles||'').trim());
+    const other = known ? '' : (l.vehicles || '');
+    const dumpster = (l.dumpsterSize || '').trim();
+    const hasDumpster = (dumpster && !/^(no|none|n\/a|0)$/i.test(dumpster)) ? 'Yes' : '';
+    rows.push([
+      normalizeDate(l.date) || l.date || '',
+      l.jobType || '',
+      hasVan, hasK1, hasK4, other,
+      hasDumpster, dumpster,
+      (l.numDollies!=null ? l.numDollies : '')
+    ]);
+  });
+
+  // ── Build CSV text ──
+  const csv = rows.map(r => r.map(c => `"${String(c==null?'':c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['\ufeff'+csv], { type:'text/csv;charset=utf-8;' }); // BOM for Excel
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href = url;
-  const p = allProjects.find(x=>x.id===window.currentProjectId);
-  a.download = `${(p?.name||'project').replace(/\s+/g,'_')}_labor_logs.csv`;
-  a.click(); URL.revokeObjectURL(url);
+  const datestamp = new Date().toISOString().split('T')[0];
+  a.download = `${(p.name||'project').replace(/[^a-z0-9]+/gi,'_')}_JobSummary_${datestamp}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showSuccess('CSV exported');
 };
 
 // ── Worker table helpers ──────────────────────────────────
@@ -1521,41 +1619,54 @@ function fallbackCopy(text, done) {
   document.body.removeChild(ta);
 }
 
-// Labor Log row: Date, Job Type, Foreman, Site, # Workers, Total Hours, worker names
+// Labor Log row — matches the summary sheet columns:
+// Date | Load&Depart TIME | Return&Unload TIME | Total Hours | Total # Technicians | Tech Hours | Total # Supervisors | Supervisor Hours | TEAM/MEMBERS
 window.copyLaborRow = (ev, logId) => {
   const l = allLogs.find(x=>x.id===logId); if (!l) return;
-  const names = (l.workers||[]).map(w=>w.name).filter(Boolean).join(', ');
+  const workers = l.workers || [];
+  const names = workers.map(w=>w.name).filter(Boolean).join(', ');
+  // Earliest start time and latest end time across all workers
+  const starts = workers.map(w=>w.startTime).filter(Boolean);
+  const ends   = workers.map(w=>w.endTime).filter(Boolean);
+  const depart = starts.length ? starts[0] : '';
+  const ret    = ends.length ? ends[ends.length-1] : '';
+  const totalHrs = logTotalHours(l);
   const row = [
-    normalizeDate(l.date) || l.date || '',
-    l.jobType || '',
-    l.foreman || '',
-    l.site || '',
-    (l.workers||[]).length,
-    logTotalHours(l).toFixed(2),
-    names
+    normalizeDate(l.date) || l.date || '',   // Date
+    depart,                                   // Load & Depart TIME
+    ret,                                      // Return & Unload TIME
+    totalHrs.toFixed(2),                      // Total Hours
+    workers.length,                           // Total # of Technicians
+    totalHrs.toFixed(2),                      // Tech Hours
+    '',                                       // Total # of Supervisors (manual)
+    '',                                       // Supervisor Hours (manual)
+    names                                     // TEAM/MEMBERS
   ].join('\t');
   copyToClipboard(row, ev.currentTarget);
 };
 
-// Equipment usage row: Date, Job Type, Vehicles, Dollies
+// Equipment Usage & Container row — matches the summary sheet columns:
+// Date | Additional Mileage | Total Daily Mileage over 50 | VAN | K1 (16-20ft) | K4 (21-24ft) | Dumpster Used? | Dumpster Size | Furniture Dollies | POD/Size | # Vaults
 window.copyEquipmentRow = (ev, logId) => {
   const l = allLogs.find(x=>x.id===logId); if (!l) return;
+  const v = (l.vehicles || '').toUpperCase();
+  const hasVan = v.includes('VAN') || v.includes('K2') || v.includes('K3') ? 'TRUE' : '';
+  const hasK1  = v.includes('K1') ? 'TRUE' : '';
+  const hasK4  = v.includes('K4') ? 'TRUE' : '';
+  const dumpster = (l.dumpsterSize || '').trim();
+  const hasDumpster = (dumpster && !/^(no|none|n\/a|0)$/i.test(dumpster)) ? 'TRUE' : '';
   const row = [
-    normalizeDate(l.date) || l.date || '',
-    l.jobType || '',
-    l.vehicles || '',
-    (l.numDollies!=null ? l.numDollies : '')
-  ].join('\t');
-  copyToClipboard(row, ev.currentTarget);
-};
-
-// Container row: Date, Job Type, Dumpster Size
-window.copyContainerRow = (ev, logId) => {
-  const l = allLogs.find(x=>x.id===logId); if (!l) return;
-  const row = [
-    normalizeDate(l.date) || l.date || '',
-    l.jobType || '',
-    l.dumpsterSize || ''
+    normalizeDate(l.date) || l.date || '',   // Date
+    '',                                       // Additional Mileage (manual)
+    '',                                       // Total Daily Mileage over 50 (manual)
+    hasVan,                                   // VAN
+    hasK1,                                    // K1 16-20ft box truck
+    hasK4,                                    // K4 21-24ft box truck
+    hasDumpster,                              // Dumpster used?
+    dumpster,                                 // Dumpster size
+    (l.numDollies!=null ? l.numDollies : ''), // Furniture Dollies
+    '',                                       // POD/Size (manual)
+    ''                                        // # Vaults at BKP (manual)
   ].join('\t');
   copyToClipboard(row, ev.currentTarget);
 };
