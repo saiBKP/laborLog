@@ -191,10 +191,6 @@
   .worker-summary{font-size:.8rem;color:var(--ink-muted);font-family:var(--font-mono);}
   .worker-summary strong{color:var(--ink);}
 
-  /* AI notes */
-  .ai-notes-block{background:#F8FAFF;border:1.5px solid #DBEAFE;border-radius:var(--radius);padding:12px 14px;font-size:.83rem;color:var(--ink-muted);font-style:italic;line-height:1.6;margin-bottom:16px;}
-  .ai-notes-block strong{font-style:normal;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--blue);font-weight:700;display:block;margin-bottom:4px;}
-
   /* Log meta */
   .log-meta{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:20px;}
   .log-meta-item .lm-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-faint);font-weight:700;margin-bottom:3px;}
@@ -458,7 +454,6 @@
           <div class="field"><label>Foreman Name</label><input type="text" id="rev-foreman" placeholder="Name"></div>
         </div>
         <div class="form-row">
-          <div class="field"><label>Site / Location</label><input type="text" id="rev-site" placeholder="Site name or address"></div>
           <div class="field"><label>Job Type</label>
             <select id="rev-jobtype">
               <option value="Packout">Packout</option>
@@ -466,8 +461,6 @@
               <option value="Other">Other</option>
             </select>
           </div>
-        </div>
-        <div class="form-row">
           <div class="field"><label>Legibility</label>
             <select id="rev-legibility">
               <option value="Clear">Clear</option>
@@ -476,7 +469,6 @@
               <option value="Poor">Poor</option>
             </select>
           </div>
-          <div class="field"></div>
         </div>
       </div>
       <div class="form-card">
@@ -487,7 +479,6 @@
         </div>
         <div class="form-row">
           <div class="field"><label>Dumpster Size</label><input type="text" id="rev-dumpster" placeholder="e.g. 20 yard, none"></div>
-          <div class="field"><label>AI Notes</label><input type="text" id="rev-ai-notes-inline" placeholder="Notes from AI" style="background:var(--surface)"></div>
         </div>
       </div>
       <div class="form-card">
@@ -565,7 +556,6 @@
         <div class="field"><label>Foreman Name</label><input type="text" id="ld-foreman" placeholder="Name"></div>
       </div>
       <div class="form-row">
-        <div class="field"><label>Site / Location</label><input type="text" id="ld-site" placeholder="Site name or address"></div>
         <div class="field"><label>Job Type</label>
           <select id="ld-jobtype">
             <option value="Packout">Packout</option>
@@ -573,8 +563,6 @@
             <option value="Other">Other</option>
           </select>
         </div>
-      </div>
-      <div class="form-row">
         <div class="field"><label>Legibility</label>
           <select id="ld-legibility">
             <option value="clear">Clear</option>
@@ -583,7 +571,6 @@
             <option value="poor">Poor</option>
           </select>
         </div>
-        <div class="field"></div>
       </div>
       <div class="form-row">
         <div class="field"><label>Vehicles Used</label><input type="text" id="ld-vehicles" placeholder="e.g. K2 - Cargo Van"></div>
@@ -591,7 +578,6 @@
       </div>
       <div class="form-row">
         <div class="field"><label>Dumpster Size</label><input type="text" id="ld-dumpster" placeholder="e.g. 20 yard, none"></div>
-        <div class="field"><label>AI Notes</label><input type="text" id="ld-ai-notes" placeholder="Notes"></div>
       </div>
     </div>
     <div class="log-meta" id="ld-meta" style="display:none;"></div>
@@ -1027,7 +1013,6 @@ window.showProjectDetail = (projectId) => {
         <div class="lc-date">${l.date || '—'}</div>
         <div class="lc-main">
           <div class="lc-foreman">${esc(l.foreman||'No foreman listed')}</div>
-          <div class="lc-site">${esc(l.site||'—')}</div>
         </div>
         <div class="lc-badges">
           ${jobTypeBadge(l.jobType)}
@@ -1086,18 +1071,11 @@ window.handleFileSelect = e => {
   reader.onload = ev => {
     const original = new Image();
     original.onload = () => {
-      // Compress: max 1200px wide, JPEG quality 0.72
-      const MAX = 1200;
-      let w = original.width, h = original.height;
-      if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(original, 0, 0, w, h);
-      const compressed = canvas.toDataURL('image/jpeg', 0.72);
-      selectedImageBase64 = compressed.split(',')[1];
+      const result = compressToBudget(original, 900000);
+      selectedImageBase64 = result.base64;
       selectedImageType   = 'image/jpeg';
       const img = document.getElementById('preview-img');
-      img.src = compressed; img.style.display = 'block';
+      img.src = result.dataUrl; img.style.display = 'block';
       const zone = document.getElementById('upload-zone');
       zone.classList.add('has-image');
       zone.querySelector('.upload-icon').style.display = 'none';
@@ -1109,6 +1087,44 @@ window.handleFileSelect = e => {
   };
   reader.readAsDataURL(file);
 };
+
+// Compress a photo as SHARPLY as possible while staying under a base64 size
+// budget (Firestore's 1MB-per-field limit). Handwriting needs detail to read
+// accurately, so this starts large/high-quality and only reduces quality —
+// then resolution — as a last resort, rather than always throwing detail
+// away up front the way a fixed-size compressor would.
+function compressToBudget(img, budgetBytes) {
+  const MAX_DIM = 2200; // long side, in px — enough detail to read handwriting clearly
+  let w = img.width, h = img.height;
+  const longSide = Math.max(w, h);
+  if (longSide > MAX_DIM) {
+    const scale = MAX_DIM / longSide;
+    w = Math.round(w * scale); h = Math.round(h * scale);
+  }
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  const qualities = [0.92, 0.85, 0.78, 0.7, 0.6, 0.5];
+  let scaleFactor = 1;
+  let lastDataUrl = null;
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const cw = Math.max(500, Math.round(w * scaleFactor));
+    const ch = Math.max(500, Math.round(h * scaleFactor));
+    canvas.width = cw; canvas.height = ch;
+    ctx.clearRect(0, 0, cw, ch);
+    ctx.drawImage(img, 0, 0, cw, ch);
+    for (const q of qualities) {
+      const dataUrl = canvas.toDataURL('image/jpeg', q);
+      lastDataUrl = dataUrl;
+      const base64 = dataUrl.split(',')[1];
+      if (base64.length <= budgetBytes) {
+        return { dataUrl, base64 };
+      }
+    }
+    scaleFactor *= 0.85; // still too big even at lowest quality — shrink and retry
+  }
+  return { dataUrl: lastDataUrl, base64: lastDataUrl.split(',')[1] };
+}
 
 function checkExtractReady() {
   document.getElementById('extract-btn').disabled =
@@ -1127,7 +1143,28 @@ window.saveApiKey = () => {
 
 // Shared Anthropic system prompt — used for both the initial upload extraction
 // and the secret "redo" reanalyze feature, so results are always consistent.
-const LABOR_LOG_SYSTEM_PROMPT = `You are an expert at reading handwritten and printed paper labor logs from construction sites. Extract all data from the image and return ONLY valid JSON — no markdown, no explanation. IMPORTANT: For the "date" field, always output the date in strict YYYY-MM-DD format (for example, a log dated 6-14-26 or 6/14/26 must be returned as "2026-06-14"). The paper logs use US month-day-year order. If the year has two digits, assume 20YY. If you cannot read the date, use null. Schema: { "date": "string (YYYY-MM-DD) or null", "foreman": "string or null", "site": "string or null", "overall_legibility": "good" or "partial" or "poor", "ai_notes": "string", "job_type": "Packout" or "Packback" or "Other", "vehicles": "string or null", "num_dollies": number or null, "dumpster_size": "string or null", "workers": [ { "name": "string", "start_time": "string or null", "end_time": "string or null", "hours": number or null, "needs_review": true or false } ] }. For job_type, classify the log as one of: Packout (removing/packing contents out of a property), Packback (returning/replacing contents back into a property), or Other if it is neither or unclear. For the "vehicles" field, the company fleet is: K1 = 16ft Truck, K2 = Cargo Van, K3 = Cargo Van, K4 = 21ft Truck. When you see a truck code like K1, K2, K3, or K4, output it WITH its type, formatted like "K2 - Cargo Van". If several trucks are listed, separate them with a comma (e.g. "K1 - 16ft Truck, K4 - 21ft Truck"). If a rented or unknown vehicle is listed, keep it as written. Set needs_review: true for any row that was unclear or required a guess. For "ai_notes": keep it very short (one brief sentence, or leave as an empty string if there is nothing worth flagging). Only mention things that actually matter for someone reviewing this log later — for example a name or number you had to guess at, damage or an unusual condition visible in the photo, or something written on the log that doesn't fit the normal fields. Do NOT describe routine things like "the log was clear and easy to read" or restate data that is already captured in the other fields.`;
+const LABOR_LOG_SYSTEM_PROMPT = `You are a meticulous data-entry clerk transcribing handwritten paper labor logs from construction/restoration job sites. Your ONLY job is accurate transcription — not summarizing, not correcting, not skipping anything. Read every row methodically, top to bottom, left to right. Return ONLY valid JSON — no markdown, no explanation, no text before or after the JSON object.
+
+READING STRATEGY — follow this process before answering:
+1. First, scan the whole page once to see how many worker rows exist in total. Every row with any writing in it must appear in your output — do not drop, merge, or skip rows, even if a row is only partially filled in.
+2. For each row, read the name, start time, end time, and hours as four SEPARATE values. Do not assume a value based on the row above or below — read what is actually written in THIS row.
+3. Watch for these common handwriting confusions and choose the most likely reading for each specific character based on its shape, not just a guess: 0 vs O, 1 vs 7, 5 vs S, 6 vs G, 2 vs Z, and decimal points that may look like stray marks (7.5 vs 75).
+4. Ditto marks, arrows, or "same" written under a name/date/time mean "repeat the value from the row above" — carry that value down explicitly into the JSON rather than leaving it blank.
+5. Cross-check arithmetic: if both a start time and end time are legible, calculate the elapsed hours yourself and use that as the "hours" value UNLESS a different written hours value is clearly legible and appears deliberate (e.g. it accounts for a lunch break) — in that case use the written value.
+6. A blurry or messy entry is not the same as a blank entry. If something is written but hard to read, give your single best-guess reading (never leave it null just because it's difficult) and set needs_review to true for that row. Only use null for a field that has genuinely nothing written in it.
+7. Names: transcribe exactly as written, including both first and last name if both appear. If the same person's name is spelled slightly differently across rows (e.g. "Jon" vs "John"), use the most complete/clear spelling consistently, but still flag any row where the name required judgment.
+
+IMPORTANT: For the "date" field, always output the date in strict YYYY-MM-DD format (for example, a log dated 6-14-26 or 6/14/26 must be returned as "2026-06-14"). The paper logs use US month-day-year order. If the year has two digits, assume 20YY. If you cannot read the date at all, use null.
+
+Schema: { "date": "string (YYYY-MM-DD) or null", "foreman": "string or null", "overall_legibility": "good" or "partial" or "poor", "job_type": "Packout" or "Packback" or "Other", "vehicles": "string or null", "num_dollies": number or null, "dumpster_size": "string or null", "workers": [ { "name": "string", "start_time": "string or null", "end_time": "string or null", "hours": number or null, "needs_review": true or false } ] }
+
+For "overall_legibility": rate the page as a whole — "good" if nearly everything was clearly readable, "partial" if you had to guess at several fields, "poor" if large portions of the page were illegible or damaged.
+
+For "job_type": classify the log as one of: Packout (removing/packing contents out of a property), Packback (returning/replacing contents back into a property), or Other if it is neither or unclear.
+
+For the "vehicles" field, the company fleet is: K1 = 16ft Truck, K2 = Cargo Van, K3 = Cargo Van, K4 = 21ft Truck. When you see a truck code like K1, K2, K3, or K4, output it WITH its type, formatted like "K2 - Cargo Van". If several trucks are listed, separate them with a comma (e.g. "K1 - 16ft Truck, K4 - 21ft Truck"). If a rented or unknown vehicle is listed, keep it as written.
+
+Before finalizing your answer, silently re-check: does the number of entries in "workers" match the number of rows you counted on the page in step 1? If not, go back and find the missing row(s).`;
 
 // Calls the Anthropic API with a photo and returns the parsed extraction JSON.
 // Shared by the upload flow and the secret reanalyze feature.
@@ -1136,7 +1173,7 @@ async function callAnthropicExtract(apiKey, base64, mediaType) {
     method: 'POST',
     headers: { 'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true' },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6', max_tokens: 1000,
+      model: 'claude-sonnet-5', max_tokens: 4096,
       system: LABOR_LOG_SYSTEM_PROMPT,
       messages: [{ role:'user', content:[
         { type:'image', source:{ type:'base64', media_type:mediaType||'image/jpeg', data:base64 } },
@@ -1245,18 +1282,32 @@ function populateReviewForm(x) {
   const dv = normalizeDate(x.date);
   document.getElementById('rev-date').value           = dv;
   document.getElementById('rev-foreman').value        = x.foreman || '';
-  document.getElementById('rev-site').value           = x.site    || '';
   document.getElementById('rev-jobtype').value        = ['Packout','Packback','Other'].includes(x.job_type) ? x.job_type : 'Other';
   document.getElementById('rev-vehicles').value       = expandVehicles(x.vehicles || '');
   document.getElementById('rev-dollies').value        = x.num_dollies != null ? x.num_dollies : '';
   document.getElementById('rev-dumpster').value       = x.dumpster_size || '';
-  document.getElementById('rev-ai-notes-inline').value = x.ai_notes || '';
   const leg = (x.overall_legibility||'unknown').toLowerCase();
   document.getElementById('rev-legibility').value = leg.charAt(0).toUpperCase()+leg.slice(1);
   const tb = document.getElementById('rev-workers-body');
   tb.innerHTML = '';
-  (x.workers||[]).forEach(w => appendWorkerRow(tb, w));
+  (x.workers||[]).forEach(w => appendWorkerRow(tb, crossCheckHours(w)));
   updateWorkerSummary('rev-workers-body','rev-summary');
+}
+
+// Deterministic safety net, independent of the AI's own judgment: if both a
+// start and end time were read, recompute the elapsed hours ourselves. If
+// that disagrees with what the AI extracted by more than a small tolerance,
+// trust the math and flag the row for a human to double-check.
+function crossCheckHours(w) {
+  const start = parseTime(w.start_time || '');
+  const end   = parseTime(w.end_time || '');
+  if (start === null || end === null || end < start) return w;
+  const computedHours = (end - start) / 60;
+  const aiHours = (w.hours != null) ? parseFloat(w.hours) : null;
+  if (aiHours == null || Math.abs(aiHours - computedHours) > 0.26) {
+    return { ...w, hours: Math.round(computedHours * 100) / 100, needs_review: true };
+  }
+  return w;
 }
 
 window.saveLog = async () => {
@@ -1269,10 +1320,8 @@ window.saveLog = async () => {
       projectId:   window.currentProjectId,
       date:        document.getElementById('rev-date').value,
       foreman:     document.getElementById('rev-foreman').value.trim(),
-      site:        document.getElementById('rev-site').value.trim(),
       jobType:     document.getElementById('rev-jobtype').value,
       legibility:  document.getElementById('rev-legibility').value.toLowerCase(),
-      aiNotes:     document.getElementById('rev-ai-notes-inline').value.trim(),
       vehicles:    expandVehicles(document.getElementById('rev-vehicles').value.trim()),
       numDollies:  document.getElementById('rev-dollies').value !== '' ? Number(document.getElementById('rev-dollies').value) : null,
       dumpsterSize: document.getElementById('rev-dumpster').value.trim(),
@@ -1334,12 +1383,10 @@ window.showLogDetail = async logId => {
   // Populate editable fields
   document.getElementById('ld-date').value      = normalizeDate(log.date) || (log.date || '');
   document.getElementById('ld-foreman').value   = log.foreman || '';
-  document.getElementById('ld-site').value      = log.site || '';
   document.getElementById('ld-jobtype').value   = ['Packout','Packback','Other'].includes(log.jobType) ? log.jobType : 'Other';
   document.getElementById('ld-vehicles').value  = log.vehicles || '';
   document.getElementById('ld-dollies').value   = log.numDollies != null ? log.numDollies : '';
   document.getElementById('ld-dumpster').value  = log.dumpsterSize || '';
-  document.getElementById('ld-ai-notes').value  = log.aiNotes || '';
   const legVal = (log.legibility||'good').toLowerCase();
   document.getElementById('ld-legibility').value = legVal;
 
@@ -1422,25 +1469,29 @@ async function reanalyzeCurrentLog(silent) {
     if (!silent) showToast('Reanalyzing photo…');
     const extracted = await callAnthropicExtract(apiKey, base64, mediaType);
 
-    const workers = (extracted.workers||[]).map(w => ({
-      id: Math.random().toString(36).slice(2),
-      name: w.name || '',
-      startTime: w.start_time || '',
-      endTime: w.end_time || '',
-      hours: w.hours != null ? w.hours : null,
-      needsReview: !!w.needs_review
-    }));
+    const workers = (extracted.workers||[]).map(w => {
+      const checked = crossCheckHours({
+        name: w.name || '', start_time: w.start_time || '', end_time: w.end_time || '',
+        hours: w.hours != null ? w.hours : null, needs_review: !!w.needs_review
+      });
+      return {
+        id: Math.random().toString(36).slice(2),
+        name: checked.name,
+        startTime: checked.start_time,
+        endTime: checked.end_time,
+        hours: checked.hours,
+        needsReview: !!checked.needs_review
+      };
+    });
 
     await updateDoc(doc(db,'logs',window.currentLogId), {
       date:         normalizeDate(extracted.date) || extracted.date || '',
       foreman:      extracted.foreman || '',
-      site:         extracted.site || '',
       jobType:      ['Packout','Packback','Other'].includes(extracted.job_type) ? extracted.job_type : 'Other',
       legibility:   (extracted.overall_legibility || 'good').toLowerCase(),
       vehicles:     expandVehicles(extracted.vehicles || ''),
       numDollies:   extracted.num_dollies != null ? extracted.num_dollies : null,
       dumpsterSize: extracted.dumpster_size || '',
-      aiNotes:      extracted.ai_notes || '',
       workers
       // Note: photoRotation is intentionally left untouched — reanalysis only
       // refreshes AI-derived content, not the saved viewing orientation.
@@ -1466,13 +1517,11 @@ async function persistLogEdits(silent) {
     await updateDoc(doc(db,'logs',window.currentLogId), {
       date:         document.getElementById('ld-date').value,
       foreman:      document.getElementById('ld-foreman').value.trim(),
-      site:         document.getElementById('ld-site').value.trim(),
       jobType:      document.getElementById('ld-jobtype').value,
       legibility:   document.getElementById('ld-legibility').value,
       vehicles:     expandVehicles(document.getElementById('ld-vehicles').value.trim()),
       numDollies:   document.getElementById('ld-dollies').value !== '' ? Number(document.getElementById('ld-dollies').value) : null,
       dumpsterSize: document.getElementById('ld-dumpster').value.trim(),
-      aiNotes:      document.getElementById('ld-ai-notes').value.trim(),
       workers:      getWorkersFromBody('ld-workers-body')
     });
     if (!silent) {
