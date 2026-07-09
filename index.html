@@ -1183,7 +1183,19 @@ async function callAnthropicExtract(apiKey, base64, mediaType) {
   });
   if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error?.message||`API error ${res.status}`); }
   const data = await res.json();
-  return JSON.parse(data.content[0].text.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim());
+  // Find the actual text response rather than assuming it's always the first
+  // content block — the API can return other block types (e.g. thinking)
+  // before the text block.
+  const textBlock = (data.content || []).find(b => b && b.type === 'text' && typeof b.text === 'string');
+  if (!textBlock) {
+    throw new Error('The model did not return a readable response. Try again, or use a clearer photo.');
+  }
+  const raw = textBlock.text.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
+  try {
+    return JSON.parse(raw);
+  } catch(e) {
+    throw new Error('The model\'s response was not valid data. Try again with a clearer photo.');
+  }
 }
 
 window.extractData = async () => {
