@@ -1158,13 +1158,15 @@ IMPORTANT: For the "date" field, always output the date in strict YYYY-MM-DD for
 
 Schema: { "date": "string (YYYY-MM-DD) or null", "foreman": "string or null", "overall_legibility": "good" or "partial" or "poor", "job_type": "Packout" or "Packback" or "Other", "vehicles": "string or null", "num_dollies": number or null, "dumpster_size": "string or null", "workers": [ { "name": "string", "start_time": "string or null", "end_time": "string or null", "hours": number or null, "needs_review": true or false } ] }
 
+For "foreman": this is the name of the crew leader, usually shown as a signature or printed name at the bottom of the page, or in a dedicated "Foreman" field near the top. The foreman is very often ALSO one of the people who worked that day — if their name also appears as one of the rows in the worker table with their own start time, end time, and hours, still include them as a normal row in "workers" with their actual worked hours. Do NOT omit the foreman from the "workers" list just because they are also named as the foreman — the "foreman" field and a matching row in "workers" are not mutually exclusive; a person can be both.
+
 For "overall_legibility": rate the page as a whole — "good" if nearly everything was clearly readable, "partial" if you had to guess at several fields, "poor" if large portions of the page were illegible or damaged.
 
 For "job_type": classify the log as one of: Packout (removing/packing contents out of a property), Packback (returning/replacing contents back into a property), or Other if it is neither or unclear.
 
 For the "vehicles" field, the company fleet is: K1 = 16ft Truck, K2 = Cargo Van, K3 = Cargo Van, K4 = 21ft Truck. When you see a truck code like K1, K2, K3, or K4, output it WITH its type, formatted like "K2 - Cargo Van". If several trucks are listed, separate them with a comma (e.g. "K1 - 16ft Truck, K4 - 21ft Truck"). If a rented or unknown vehicle is listed, keep it as written.
 
-Before finalizing your answer, silently re-check: does the number of entries in "workers" match the number of rows you counted on the page in step 1? If not, go back and find the missing row(s).`;
+Before finalizing your answer, silently re-check: does the number of entries in "workers" match the number of rows you counted on the page in step 1? If not, go back and find the missing row(s). Also double-check: if the foreman's name is written anywhere in the worker rows with hours, is that row included in "workers"?`;
 
 // Calls the Anthropic API with a photo and returns the parsed extraction JSON.
 // Shared by the upload flow and the secret reanalyze feature.
