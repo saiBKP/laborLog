@@ -213,21 +213,23 @@
   .project-meta .pm-val{font-size:.95rem;color:var(--ink);font-weight:500;}
 
   /* ── Log list (card rows) ── */
-  .logs-list{display:flex;flex-direction:column;gap:10px;}
-  .log-card{background:var(--panel);border:1.5px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:16px 18px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;transition:border-color .15s,box-shadow .15s;}
+  .logs-list{display:flex;flex-direction:column;gap:8px;}
+  .log-card{background:var(--panel);border:1.5px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:11px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;transition:border-color .15s,box-shadow .15s;}
   .log-card:hover{border-color:var(--blue);box-shadow:var(--shadow-md);}
-  .log-card .lc-date{font-family:var(--font-mono);font-weight:700;font-size:1rem;color:var(--ink);min-width:92px;}
-  .log-card .lc-main{flex:1;min-width:220px;display:flex;flex-direction:column;gap:3px;}
-  .log-card .lc-foreman{font-weight:700;font-size:.95rem;color:var(--ink);}
-  .log-card .lc-site{font-size:.82rem;color:var(--ink-muted);}
-  .log-card .lc-stats{display:flex;gap:20px;flex-wrap:wrap;}
-  .log-card .lc-stat{text-align:center;min-width:56px;}
-  .log-card .lc-stat .lc-stat-val{font-family:var(--font-mono);font-weight:800;font-size:1.05rem;color:var(--ink);}
-  .log-card .lc-stat .lc-stat-lbl{font-size:.65rem;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint);font-weight:600;margin-top:1px;}
-  .log-card .lc-badges{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
-  .log-card .lc-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-left:auto;}
+  .log-card .lc-date{font-family:var(--font-mono);font-weight:700;font-size:.9rem;color:var(--ink);min-width:82px;}
+  .log-card .lc-main{flex:1;min-width:200px;display:flex;flex-direction:column;gap:1px;}
+  .log-card .lc-foreman{font-weight:700;font-size:.88rem;color:var(--ink);}
+  .log-card .lc-site{font-size:.76rem;color:var(--ink-muted);}
+  .log-card .lc-stats{display:flex;gap:16px;flex-wrap:wrap;}
+  .log-card .lc-stat{text-align:center;min-width:48px;}
+  .log-card .lc-stat .lc-stat-val{font-family:var(--font-mono);font-weight:800;font-size:.95rem;color:var(--ink);}
+  .log-card .lc-stat .lc-stat-lbl{font-size:.6rem;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint);font-weight:600;margin-top:0;}
+  .log-card .lc-badges{display:flex;gap:5px;flex-wrap:wrap;align-items:center;}
+  .log-card .lc-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-left:auto;}
+  .lc-copy-label{font-size:.65rem;color:var(--ink-faint);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-right:2px;white-space:nowrap;}
+  .copy-btn svg{width:11px;height:11px;flex-shrink:0;vertical-align:-1px;margin-right:3px;}
   @media(max-width:760px){
-    .log-card{flex-direction:column;align-items:stretch;gap:12px;}
+    .log-card{flex-direction:column;align-items:stretch;gap:10px;padding:14px 16px;}
     .log-card .lc-actions{margin-left:0;justify-content:flex-start;}
     .log-card .lc-stats{justify-content:flex-start;}
   }
@@ -474,10 +476,7 @@
               <option value="Poor">Poor</option>
             </select>
           </div>
-          <div class="field checkbox-row" style="align-self:end;">
-            <input type="checkbox" id="rev-signed">
-            <label for="rev-signed">Log is signed by foreman</label>
-          </div>
+          <div class="field"></div>
         </div>
       </div>
       <div class="form-card">
@@ -517,7 +516,7 @@
 
   <!-- VIEW: Log Detail -->
   <div id="view-log-detail" class="view">
-    <button class="back-link" onclick="showProjectDetail(currentProjectId)">
+    <button class="back-link" onclick="leaveLogDetail()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 5l-7 7 7 7"/></svg>
       Back to Project
     </button>
@@ -579,10 +578,6 @@
       <div class="form-row">
         <div class="field"><label>Dumpster Size</label><input type="text" id="ld-dumpster" placeholder="e.g. 20 yard, none"></div>
         <div class="field"><label>AI Notes</label><input type="text" id="ld-ai-notes" placeholder="Notes"></div>
-      </div>
-      <div class="field checkbox-row" style="margin-top:4px;">
-        <input type="checkbox" id="ld-signed">
-        <label for="ld-signed">Log is signed by foreman</label>
       </div>
     </div>
     <div class="log-meta" id="ld-meta" style="display:none;"></div>
@@ -1029,9 +1024,16 @@ window.showProjectDetail = (projectId) => {
           <div class="lc-stat"><div class="lc-stat-val">${lHrs.toFixed(1)}</div><div class="lc-stat-lbl">Hours</div></div>
         </div>
         <div class="lc-actions">
+          <span class="lc-copy-label">Copy:</span>
           <div class="copy-btn-group">
-            <button class="copy-btn" onclick="copyLaborRow(event,'${l.id}')" title="Copy Labor Log row for the summary sheet">Labor Log</button>
-            <button class="copy-btn" onclick="copyEquipmentRow(event,'${l.id}')" title="Copy Equipment Usage &amp; Container row for the summary sheet">Equip &amp; Container</button>
+            <button class="copy-btn" onclick="copyLaborRow(event,'${l.id}')" title="Copy Labor Log row for the summary sheet">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Labor Log
+            </button>
+            <button class="copy-btn" onclick="copyEquipmentRow(event,'${l.id}')" title="Copy Equipment Usage &amp; Container row for the summary sheet">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Equip &amp; Container
+            </button>
           </div>
           <button class="btn btn-secondary btn-sm" onclick="showLogDetail('${l.id}')">View</button>
         </div>
@@ -1124,7 +1126,7 @@ window.extractData = async () => {
       headers: { 'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true' },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6', max_tokens: 1000,
-        system: `You are an expert at reading handwritten and printed paper labor logs from construction sites. Extract all data from the image and return ONLY valid JSON — no markdown, no explanation. IMPORTANT: For the "date" field, always output the date in strict YYYY-MM-DD format (for example, a log dated 6-14-26 or 6/14/26 must be returned as "2026-06-14"). The paper logs use US month-day-year order. If the year has two digits, assume 20YY. If you cannot read the date, use null. Schema: { "date": "string (YYYY-MM-DD) or null", "foreman": "string or null", "site": "string or null", "signed": true or false, "overall_legibility": "good" or "partial" or "poor", "ai_notes": "string", "job_type": "Packout" or "Packback" or "Other", "vehicles": "string or null", "num_dollies": number or null, "dumpster_size": "string or null", "workers": [ { "name": "string", "start_time": "string or null", "end_time": "string or null", "hours": number or null, "needs_review": true or false } ] }. For job_type, classify the log as one of: Packout (removing/packing contents out of a property), Packback (returning/replacing contents back into a property), or Other if it is neither or unclear. For the "vehicles" field, the company fleet is: K1 = 16ft Truck, K2 = Cargo Van, K3 = Cargo Van, K4 = 21ft Truck. When you see a truck code like K1, K2, K3, or K4, output it WITH its type, formatted like "K2 - Cargo Van". If several trucks are listed, separate them with a comma (e.g. "K1 - 16ft Truck, K4 - 21ft Truck"). If a rented or unknown vehicle is listed, keep it as written. Set needs_review: true for any row that was unclear or required a guess.`,
+        system: `You are an expert at reading handwritten and printed paper labor logs from construction sites. Extract all data from the image and return ONLY valid JSON — no markdown, no explanation. IMPORTANT: For the "date" field, always output the date in strict YYYY-MM-DD format (for example, a log dated 6-14-26 or 6/14/26 must be returned as "2026-06-14"). The paper logs use US month-day-year order. If the year has two digits, assume 20YY. If you cannot read the date, use null. Schema: { "date": "string (YYYY-MM-DD) or null", "foreman": "string or null", "site": "string or null", "overall_legibility": "good" or "partial" or "poor", "ai_notes": "string", "job_type": "Packout" or "Packback" or "Other", "vehicles": "string or null", "num_dollies": number or null, "dumpster_size": "string or null", "workers": [ { "name": "string", "start_time": "string or null", "end_time": "string or null", "hours": number or null, "needs_review": true or false } ] }. For job_type, classify the log as one of: Packout (removing/packing contents out of a property), Packback (returning/replacing contents back into a property), or Other if it is neither or unclear. For the "vehicles" field, the company fleet is: K1 = 16ft Truck, K2 = Cargo Van, K3 = Cargo Van, K4 = 21ft Truck. When you see a truck code like K1, K2, K3, or K4, output it WITH its type, formatted like "K2 - Cargo Van". If several trucks are listed, separate them with a comma (e.g. "K1 - 16ft Truck, K4 - 21ft Truck"). If a rented or unknown vehicle is listed, keep it as written. Set needs_review: true for any row that was unclear or required a guess. For "ai_notes": keep it very short (one brief sentence, or leave as an empty string if there is nothing worth flagging). Only mention things that actually matter for someone reviewing this log later — for example a name or number you had to guess at, damage or an unusual condition visible in the photo, or something written on the log that doesn't fit the normal fields. Do NOT describe routine things like "the log was clear and easy to read" or restate data that is already captured in the other fields.`,
         messages: [{ role:'user', content:[
           { type:'image', source:{ type:'base64', media_type:mediaType, data:selectedImageBase64 } },
           { type:'text', text:'Extract all labor log data from this image.' }
@@ -1220,7 +1222,6 @@ function populateReviewForm(x) {
   document.getElementById('rev-date').value           = dv;
   document.getElementById('rev-foreman').value        = x.foreman || '';
   document.getElementById('rev-site').value           = x.site    || '';
-  document.getElementById('rev-signed').checked       = !!x.signed;
   document.getElementById('rev-jobtype').value        = ['Packout','Packback','Other'].includes(x.job_type) ? x.job_type : 'Other';
   document.getElementById('rev-vehicles').value       = expandVehicles(x.vehicles || '');
   document.getElementById('rev-dollies').value        = x.num_dollies != null ? x.num_dollies : '';
@@ -1245,7 +1246,6 @@ window.saveLog = async () => {
       date:        document.getElementById('rev-date').value,
       foreman:     document.getElementById('rev-foreman').value.trim(),
       site:        document.getElementById('rev-site').value.trim(),
-      signed:      document.getElementById('rev-signed').checked,
       jobType:     document.getElementById('rev-jobtype').value,
       legibility:  document.getElementById('rev-legibility').value.toLowerCase(),
       aiNotes:     document.getElementById('rev-ai-notes-inline').value.trim(),
@@ -1308,7 +1308,6 @@ window.showLogDetail = async logId => {
   document.getElementById('ld-date').value      = normalizeDate(log.date) || (log.date || '');
   document.getElementById('ld-foreman').value   = log.foreman || '';
   document.getElementById('ld-site').value      = log.site || '';
-  document.getElementById('ld-signed').checked  = !!log.signed;
   document.getElementById('ld-jobtype').value   = ['Packout','Packback','Other'].includes(log.jobType) ? log.jobType : 'Other';
   document.getElementById('ld-vehicles').value  = log.vehicles || '';
   document.getElementById('ld-dollies').value   = log.numDollies != null ? log.numDollies : '';
@@ -1342,14 +1341,14 @@ window.toggleLogPhoto = () => {
   if (hidden) panel.scrollIntoView({ behavior:'smooth', block:'start' });
 };
 
-window.saveLogEdits = async () => {
+// Shared save logic used by both the explicit Save button and "Back to Project"
+async function persistLogEdits(silent) {
   setSyncing();
   try {
     await updateDoc(doc(db,'logs',window.currentLogId), {
       date:         document.getElementById('ld-date').value,
       foreman:      document.getElementById('ld-foreman').value.trim(),
       site:         document.getElementById('ld-site').value.trim(),
-      signed:       document.getElementById('ld-signed').checked,
       jobType:      document.getElementById('ld-jobtype').value,
       legibility:   document.getElementById('ld-legibility').value,
       vehicles:     expandVehicles(document.getElementById('ld-vehicles').value.trim()),
@@ -1358,11 +1357,24 @@ window.saveLogEdits = async () => {
       aiNotes:      document.getElementById('ld-ai-notes').value.trim(),
       workers:      getWorkersFromBody('ld-workers-body')
     });
-    // Refresh sub-header foreman name live
-    document.getElementById('ld-title').textContent = 'Log — ' + (document.getElementById('ld-date').value || 'Log');
-    document.getElementById('ld-sub').textContent   = document.getElementById('ld-foreman').value.trim() ? 'Foreman: ' + document.getElementById('ld-foreman').value.trim() : '';
-    showSuccess('Changes saved');
-  } catch(e) { showToast('Error: ' + e.message); }
+    if (!silent) {
+      document.getElementById('ld-title').textContent = 'Log — ' + (document.getElementById('ld-date').value || 'Log');
+      document.getElementById('ld-sub').textContent   = document.getElementById('ld-foreman').value.trim() ? 'Foreman: ' + document.getElementById('ld-foreman').value.trim() : '';
+      showSuccess('Changes saved');
+    }
+    return true;
+  } catch(e) {
+    showToast('Error: ' + e.message);
+    return false;
+  }
+}
+
+window.saveLogEdits = () => persistLogEdits(false);
+
+// "Back to Project" — save silently first, then navigate (so nothing is lost)
+window.leaveLogDetail = async () => {
+  await persistLogEdits(true);
+  window.showProjectDetail(window.currentProjectId);
 };
 
 window.deleteLog = async () => {
@@ -1692,9 +1704,10 @@ function logTotalHours(l) {
 function copyToClipboard(text, btn) {
   const done = () => {
     if (btn) {
-      const orig = btn.textContent;
-      btn.classList.add('copied'); btn.textContent = '✓';
-      setTimeout(()=>{ btn.classList.remove('copied'); btn.textContent = orig; }, 1200);
+      const orig = btn.innerHTML;
+      btn.classList.add('copied');
+      btn.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="margin-right:3px;vertical-align:-1px;"><polyline points="20 6 9 17 4 12"/></svg> Copied';
+      setTimeout(()=>{ btn.classList.remove('copied'); btn.innerHTML = orig; }, 1200);
     }
     showSuccess('Copied — paste into the summary sheet');
   };
