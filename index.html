@@ -138,11 +138,6 @@
   .table-wrap::-webkit-scrollbar-thumb{background:var(--border-mid);border-radius:6px;}
   .table-wrap::-webkit-scrollbar-thumb:hover{background:var(--ink-faint);}
   /* Keep the logs table from crushing columns; forces horizontal scroll instead of cut-off */
-  #pd-logs-wrap table{min-width:900px;}
-  /* Pin the last column (View button) so it stays reachable while scrolling */
-  #pd-logs-wrap thead th:last-child,
-  #pd-logs-wrap tbody td:last-child{position:sticky;right:0;background:var(--panel);box-shadow:-6px 0 8px -6px rgba(0,0,0,.12);}
-  #pd-logs-wrap thead th:last-child{background:var(--slate-800);}
   .scroll-hint{font-size:.72rem;color:var(--ink-faint);margin:6px 2px 0;display:none;}
   @media(max-width:760px){.scroll-hint{display:block;}}
   table{width:100%;border-collapse:collapse;font-size:.875rem;}
@@ -216,6 +211,26 @@
   .project-meta .pm-item{flex:1;min-width:150px;}
   .project-meta .pm-label{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-faint);margin-bottom:3px;}
   .project-meta .pm-val{font-size:.95rem;color:var(--ink);font-weight:500;}
+
+  /* ── Log list (card rows) ── */
+  .logs-list{display:flex;flex-direction:column;gap:10px;}
+  .log-card{background:var(--panel);border:1.5px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:16px 18px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;transition:border-color .15s,box-shadow .15s;}
+  .log-card:hover{border-color:var(--blue);box-shadow:var(--shadow-md);}
+  .log-card .lc-date{font-family:var(--font-mono);font-weight:700;font-size:1rem;color:var(--ink);min-width:92px;}
+  .log-card .lc-main{flex:1;min-width:220px;display:flex;flex-direction:column;gap:3px;}
+  .log-card .lc-foreman{font-weight:700;font-size:.95rem;color:var(--ink);}
+  .log-card .lc-site{font-size:.82rem;color:var(--ink-muted);}
+  .log-card .lc-stats{display:flex;gap:20px;flex-wrap:wrap;}
+  .log-card .lc-stat{text-align:center;min-width:56px;}
+  .log-card .lc-stat .lc-stat-val{font-family:var(--font-mono);font-weight:800;font-size:1.05rem;color:var(--ink);}
+  .log-card .lc-stat .lc-stat-lbl{font-size:.65rem;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint);font-weight:600;margin-top:1px;}
+  .log-card .lc-badges{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+  .log-card .lc-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-left:auto;}
+  @media(max-width:760px){
+    .log-card{flex-direction:column;align-items:stretch;gap:12px;}
+    .log-card .lc-actions{margin-left:0;justify-content:flex-start;}
+    .log-card .lc-stats{justify-content:flex-start;}
+  }
 
   /* Delete row button */
   .copy-btn-group{display:flex;gap:4px;}
@@ -335,9 +350,9 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
           Delete
         </button>
-        <button class="btn btn-secondary" onclick="exportCSV()">
+        <button class="btn btn-secondary" id="export-csv-btn" onclick="exportCSV()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Export CSV
+          Export Excel
         </button>
         <button class="btn btn-primary" onclick="goToUpload()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -377,13 +392,7 @@
     </div>
     <div class="chips" id="pd-chips"></div>
     <div class="section-label">Labor Logs</div>
-    <div id="pd-logs-wrap" class="table-wrap">
-      <table>
-        <thead><tr><th>Date</th><th>Job Type</th><th>Foreman</th><th>Site</th><th>Workers</th><th>Total Hrs</th><th>Legibility</th><th>Signed</th><th>Copy for Summary</th><th>Open</th></tr></thead>
-        <tbody id="pd-logs-body"></tbody>
-      </table>
-    </div>
-    <div class="scroll-hint">&#8592; Swipe sideways to see all columns &#8594;</div>
+    <div id="pd-logs-list" class="logs-list"></div>
     <div id="pd-empty" class="empty-state" style="display:none;">
       <div class="empty-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
       <h3>No logs yet</h3>
@@ -595,6 +604,7 @@
 
 </main>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
 import { getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
@@ -740,7 +750,7 @@ function renderProjects() {
         <div class="card-top">
           <div>
             <div class="card-name">${esc(p.name)}</div>
-            <div class="card-client">${esc(p.client||'&#8212;')}</div>
+            <div class="card-client">${esc(p.client||'—')}</div>
             ${p.address?`<div class="card-address"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>${esc(p.address)}</div>`:''}
           </div>
           <div>${statusBadge(p.status)}</div>
@@ -980,20 +990,19 @@ window.showProjectDetail = (projectId) => {
   document.getElementById('pd-name').textContent = p.name;
   document.getElementById('pd-sub').textContent  = p.client ? 'Client: ' + p.client : '';
   document.getElementById('pd-project-meta').innerHTML = `
-    <div class="pm-item"><div class="pm-label">Client</div><div class="pm-val">${esc(p.client||'&#8212;')}</div></div>
-    <div class="pm-item"><div class="pm-label">Site Address</div><div class="pm-val">${esc(p.address||'&#8212;')}</div></div>
+    <div class="pm-item"><div class="pm-label">Client</div><div class="pm-val">${esc(p.client||'—')}</div></div>
+    <div class="pm-item"><div class="pm-label">Site Address</div><div class="pm-val">${esc(p.address||'—')}</div></div>
     <div class="pm-item"><div class="pm-label">Status</div><div class="pm-val">${statusBadge(p.status)}</div></div>
     <div class="pm-item"><div class="pm-label">Created</div><div class="pm-val">${formatDate(p.createdAt)}</div></div>`;
   document.getElementById('pd-chips').innerHTML = `
     <div class="chip chip-blue"><div class="chip-val">${logs.length}</div><div class="chip-lbl">Total Logs</div></div>
     <div class="chip"><div class="chip-val">${hrs.toFixed(1)}</div><div class="chip-lbl">Total Hours</div></div>`;
 
-  const tbody = document.getElementById('pd-logs-body');
+  const listEl = document.getElementById('pd-logs-list');
   const empty = document.getElementById('pd-empty');
-  const wrap  = document.getElementById('pd-logs-wrap');
-  if (!logs.length) { wrap.style.display='none'; empty.style.display='block'; }
+  if (!logs.length) { listEl.style.display='none'; empty.style.display='block'; }
   else {
-    wrap.style.display='block'; empty.style.display='none';
+    listEl.style.display='flex'; empty.style.display='none';
     // Sort logs by their labor-log date (newest first); undated logs sink to the bottom
     const sortedLogs = logs.slice().sort((a,b) => {
       const da = normalizeDate(a.date) || '';
@@ -1003,25 +1012,30 @@ window.showProjectDetail = (projectId) => {
       if (!da && dbb) return 1;
       return String(b.createdAt||'').localeCompare(String(a.createdAt||''));
     });
-    tbody.innerHTML = sortedLogs.map(l => {
+    listEl.innerHTML = sortedLogs.map(l => {
       const lHrs = (l.workers||[]).reduce((s,w)=>s+(parseFloat(w.hours)||0),0);
-      return `<tr>
-        <td>${l.date||'&#8212;'}</td>
-        <td>${jobTypeBadge(l.jobType)}</td>
-        <td>${esc(l.foreman||'&#8212;')}</td>
-        <td>${esc(l.site||'&#8212;')}</td>
-        <td style="font-family:var(--font-mono)">${(l.workers||[]).length}</td>
-        <td style="font-family:var(--font-mono)">${lHrs.toFixed(1)}</td>
-        <td>${legibilityBadge(l.legibility)}</td>
-        <td>${l.signed?'<span style="color:var(--green)">&#10003;</span>':'<span style="color:var(--ink-faint)">&#8212;</span>'}</td>
-        <td>
+      return `<div class="log-card">
+        <div class="lc-date">${l.date || '—'}</div>
+        <div class="lc-main">
+          <div class="lc-foreman">${esc(l.foreman||'No foreman listed')}</div>
+          <div class="lc-site">${esc(l.site||'—')}</div>
+        </div>
+        <div class="lc-badges">
+          ${jobTypeBadge(l.jobType)}
+          ${legibilityBadge(l.legibility)}
+        </div>
+        <div class="lc-stats">
+          <div class="lc-stat"><div class="lc-stat-val">${(l.workers||[]).length}</div><div class="lc-stat-lbl">Workers</div></div>
+          <div class="lc-stat"><div class="lc-stat-val">${lHrs.toFixed(1)}</div><div class="lc-stat-lbl">Hours</div></div>
+        </div>
+        <div class="lc-actions">
           <div class="copy-btn-group">
             <button class="copy-btn" onclick="copyLaborRow(event,'${l.id}')" title="Copy Labor Log row for the summary sheet">Labor Log</button>
-            <button class="copy-btn" onclick="copyEquipmentRow(event,'${l.id}')" title="Copy Equipment Usage & Container row for the summary sheet">Equip &amp; Container</button>
+            <button class="copy-btn" onclick="copyEquipmentRow(event,'${l.id}')" title="Copy Equipment Usage &amp; Container row for the summary sheet">Equip &amp; Container</button>
           </div>
-        </td>
-        <td><button class="btn btn-secondary btn-sm" onclick="showLogDetail('${l.id}')">View</button></td>
-      </tr>`;
+          <button class="btn btn-secondary btn-sm" onclick="showLogDetail('${l.id}')">View</button>
+        </div>
+      </div>`;
     }).join('');
   }
   window.showView('project-detail');
@@ -1363,106 +1377,183 @@ window.deleteLog = async () => {
   } catch(e) { showToast('Error: ' + e.message); }
 };
 
-// ── CSV Export ────────────────────────────────────────────
-window.exportCSV = () => {
+// ── Formatted Excel Export (bold headers, colors, sizing) ─
+window.exportCSV = async () => {
   const logs = allLogs.filter(l => l.projectId === window.currentProjectId);
   if (!logs.length) { alert('No logs to export.'); return; }
   const p = allProjects.find(x=>x.id===window.currentProjectId) || {};
 
-  // Sort logs by date (oldest first) so the export reads chronologically like the sheet
-  const sorted = logs.slice().sort((a,b) => (normalizeDate(a.date)||'').localeCompare(normalizeDate(b.date)||''));
+  const btn = document.getElementById('export-csv-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Building...'; }
 
-  const rows = [];
-  const blank = () => rows.push([]);
+  try {
+    const sorted = logs.slice().sort((a,b) => (normalizeDate(a.date)||'').localeCompare(normalizeDate(b.date)||''));
 
-  // ── Header block (mirrors the top of the Job Summary sheet) ──
-  rows.push(['JOB SUMMARY EXPORT']);
-  rows.push(['Project', p.name || '']);
-  rows.push(['Client', p.client || '']);
-  rows.push(['Site Address', p.address || '']);
-  rows.push(['Status', p.status || '']);
-  rows.push(['Exported', new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})]);
-  blank();
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Field Labor Logs';
+    wb.created = new Date();
+    const ws = wb.addWorksheet('Job Summary', { views: [{ showGridLines: false }] });
 
-  // ── LABOR LOG section ──
-  rows.push(['LABOR LOG']);
-  rows.push(['Date','Job Type','Load & Depart Time','Return & Unload Time','Total Hours','Total # of Technicians','Tech Hours','Total # of Supervisors','Supervisor Hours','Team / Members','Foreman','Signed','Legibility']);
-  let grandHours = 0, grandTechs = 0;
-  sorted.forEach(l => {
-    const workers = l.workers || [];
-    const starts = workers.map(w=>w.startTime).filter(Boolean);
-    const ends   = workers.map(w=>w.endTime).filter(Boolean);
-    const totalHrs = workers.reduce((s,w)=>s+(parseFloat(w.hours)||0),0);
-    grandHours += totalHrs; grandTechs += workers.length;
-    rows.push([
-      normalizeDate(l.date) || l.date || '',
-      l.jobType || '',
-      starts.length ? starts[0] : '',
-      ends.length ? ends[ends.length-1] : '',
-      totalHrs.toFixed(2),
-      workers.length,
-      totalHrs.toFixed(2),
-      '',  // supervisors (manual)
-      '',  // supervisor hours (manual)
-      workers.map(w=>w.name).filter(Boolean).join(', '),
-      l.foreman || '',
-      l.signed ? 'Yes' : 'No',
-      l.legibility || ''
-    ]);
-  });
-  rows.push(['TOTAL','','','',grandHours.toFixed(2),grandTechs,grandHours.toFixed(2),'','','','','','']);
-  blank();
+    // Brand colors
+    const NAVY  = 'FF1E293B';
+    const BLUE  = 'FF2563EB';
+    const LGRAY = 'FFF1F5F9';
+    const GREEN = 'FF16A34A';
+    const AMBER = 'FFD97706';
+    const WHITE = 'FFFFFFFF';
 
-  // ── Per-worker detail (kept for payroll — one row per technician) ──
-  rows.push(['LABOR DETAIL (per technician)']);
-  rows.push(['Date','Job Type','Foreman','Worker Name','Start Time','End Time','Hours','Needs Review']);
-  sorted.forEach(l => (l.workers||[]).forEach(w =>
-    rows.push([
-      normalizeDate(l.date) || l.date || '',
-      l.jobType || '',
-      l.foreman || '',
-      w.name || '',
-      w.startTime || '',
-      w.endTime || '',
-      (w.hours!=null?w.hours:''),
-      w.needsReview ? 'Yes' : 'No'
-    ])
-  ));
-  blank();
+    let r = 1;
+    const setCol = (col, width) => { ws.getColumn(col).width = width; };
+    [16,14,16,16,12,12,12,12,14,28,16,12].forEach((w,i)=>setCol(i+1,w));
 
-  // ── EQUIPMENT USAGE & CONTAINER LOG section ──
-  rows.push(['EQUIPMENT USAGE & CONTAINER LOG']);
-  rows.push(['Date','Job Type','VAN (K2/K3)','K1 16-20ft Box Truck','K4 21-24ft Box Truck','Other/Rented Vehicle','Dumpster Used?','Dumpster Size','Furniture Dollies']);
-  sorted.forEach(l => {
-    const v = (l.vehicles || '').toUpperCase();
-    const hasVan = (v.includes('VAN') || v.includes('K2') || v.includes('K3')) ? 'X' : '';
-    const hasK1  = v.includes('K1') ? 'X' : '';
-    const hasK4  = v.includes('K4') ? 'X' : '';
-    // Anything that isn't a known K-code / van = treat as other/rented
-    const known = /^(\s*(K[1-4]|VAN|CARGO VAN|16FT TRUCK|21FT TRUCK)\s*(-\s*[A-Z0-9 ]+)?,?)+$/i.test((l.vehicles||'').trim());
-    const other = known ? '' : (l.vehicles || '');
-    const dumpster = (l.dumpsterSize || '').trim();
-    const hasDumpster = (dumpster && !/^(no|none|n\/a|0)$/i.test(dumpster)) ? 'Yes' : '';
-    rows.push([
-      normalizeDate(l.date) || l.date || '',
-      l.jobType || '',
-      hasVan, hasK1, hasK4, other,
-      hasDumpster, dumpster,
-      (l.numDollies!=null ? l.numDollies : '')
-    ]);
-  });
+    // ── Title band ──
+    ws.mergeCells(r,1,r,12);
+    const title = ws.getCell(r,1);
+    title.value = 'JOB SUMMARY — ' + (p.name || 'Project');
+    title.font = { bold:true, size:18, color:{argb:WHITE} };
+    title.fill = { type:'pattern', pattern:'solid', fgColor:{argb:NAVY} };
+    title.alignment = { vertical:'middle', horizontal:'left', indent:1 };
+    ws.getRow(r).height = 30;
+    r++;
 
-  // ── Build CSV text ──
-  const csv = rows.map(r => r.map(c => `"${String(c==null?'':c).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const blob = new Blob(['\ufeff'+csv], { type:'text/csv;charset=utf-8;' }); // BOM for Excel
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href = url;
-  const datestamp = new Date().toISOString().split('T')[0];
-  a.download = `${(p.name||'project').replace(/[^a-z0-9]+/gi,'_')}_JobSummary_${datestamp}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-  showSuccess('CSV exported');
+    // ── Project info block ──
+    const infoPairs = [
+      ['Client', p.client || '—'],
+      ['Site Address', p.address || '—'],
+      ['Status', p.status || '—'],
+      ['Exported', new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})]
+    ];
+    infoPairs.forEach(([label,val]) => {
+      const lc = ws.getCell(r,1); lc.value = label; lc.font = { bold:true, size:10, color:{argb:'FF475569'} };
+      ws.mergeCells(r,2,r,5);
+      const vc = ws.getCell(r,2); vc.value = val; vc.font = { size:10.5, color:{argb:'FF0F172A'} };
+      r++;
+    });
+    r++; // blank spacer row
+
+    // ── Helper: section header band ──
+    function sectionHeader(text, color) {
+      ws.mergeCells(r,1,r,12);
+      const c = ws.getCell(r,1);
+      c.value = text;
+      c.font = { bold:true, size:13, color:{argb:WHITE} };
+      c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:color} };
+      c.alignment = { vertical:'middle', indent:1 };
+      ws.getRow(r).height = 22;
+      r++;
+    }
+    // ── Helper: column header row ──
+    function colHeaders(labels) {
+      labels.forEach((label,i) => {
+        const c = ws.getCell(r,i+1);
+        c.value = label;
+        c.font = { bold:true, size:9.5, color:{argb:WHITE} };
+        c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:'FF334155'} };
+        c.alignment = { vertical:'middle', horizontal:'center', wrapText:true };
+        c.border = { bottom:{style:'thin',color:{argb:'FF1E293B'}} };
+      });
+      ws.getRow(r).height = 30;
+      r++;
+    }
+    // ── Helper: data row (with light zebra striping) ──
+    function dataRow(values, opts) {
+      opts = opts || {};
+      values.forEach((v,i) => {
+        const c = ws.getCell(r,i+1);
+        c.value = v;
+        c.font = { size:10, bold: !!opts.bold, color:{argb: opts.color || 'FF0F172A'} };
+        c.alignment = { vertical:'middle', horizontal: opts.center ? 'center' : (i===0?'left':'center') };
+        if (opts.fill) c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:opts.fill} };
+        else if (r % 2 === 0) c.fill = { type:'pattern', pattern:'solid', fgColor:{argb:LGRAY} };
+        c.border = { bottom:{style:'hair',color:{argb:'FFE2E8F0'}} };
+      });
+      r++;
+    }
+
+    // ═══ LABOR LOG ═══
+    sectionHeader('LABOR LOG', BLUE);
+    colHeaders(['Date','Job Type','Load & Depart','Return & Unload','Total Hrs','# Technicians','Tech Hours','# Supervisors','Supervisor Hrs','Team / Members','Foreman','Legibility']);
+    let grandHours = 0, grandTechs = 0;
+    sorted.forEach(l => {
+      const workers = l.workers || [];
+      const starts = workers.map(w=>w.startTime).filter(Boolean);
+      const ends   = workers.map(w=>w.endTime).filter(Boolean);
+      const totalHrs = workers.reduce((s,w)=>s+(parseFloat(w.hours)||0),0);
+      grandHours += totalHrs; grandTechs += workers.length;
+      dataRow([
+        normalizeDate(l.date) || l.date || '',
+        l.jobType || '',
+        starts[0] || '',
+        ends[ends.length-1] || '',
+        totalHrs.toFixed(2),
+        workers.length,
+        totalHrs.toFixed(2),
+        '', '',
+        workers.map(w=>w.name).filter(Boolean).join(', '),
+        l.foreman || '',
+        (l.legibility||'').replace(/^\w/,c=>c.toUpperCase())
+      ]);
+    });
+    dataRow(['TOTAL','','','',grandHours.toFixed(2),grandTechs,grandHours.toFixed(2),'','','','',''],
+      { bold:true, fill:'FFDCFCE7', color:'FF14532D' });
+    r++; // spacer
+
+    // ═══ LABOR DETAIL (per technician) ═══
+    sectionHeader('LABOR DETAIL — PER TECHNICIAN', 'FF6D28D9');
+    colHeaders(['Date','Job Type','Foreman','Worker Name','Start','End','Hours','Needs Review','','','','']);
+    sorted.forEach(l => (l.workers||[]).forEach(w => {
+      dataRow([
+        normalizeDate(l.date) || l.date || '',
+        l.jobType || '',
+        l.foreman || '',
+        w.name || '',
+        w.startTime || '',
+        w.endTime || '',
+        (w.hours!=null?w.hours:''),
+        w.needsReview ? 'Yes' : 'No'
+      ], w.needsReview ? { fill:'FFFEF3C7', color:'FFB45309' } : {});
+    }));
+    r++; // spacer
+
+    // ═══ EQUIPMENT USAGE & CONTAINER LOG ═══
+    sectionHeader('EQUIPMENT USAGE & CONTAINER LOG', AMBER);
+    colHeaders(['Date','Job Type','VAN\n(K2/K3)','K1\n16-20ft Truck','K4\n21-24ft Truck','Other/Rented','Dumpster\nUsed?','Dumpster\nSize','Furniture\nDollies','','','']);
+    sorted.forEach(l => {
+      const v = (l.vehicles||'').toUpperCase();
+      const hasVan = (v.includes('VAN')||v.includes('K2')||v.includes('K3')) ? 'X' : '';
+      const hasK1  = v.includes('K1') ? 'X' : '';
+      const hasK4  = v.includes('K4') ? 'X' : '';
+      const known = /^(\s*(K[1-4]|VAN|CARGO VAN|16FT TRUCK|21FT TRUCK)\s*(-\s*[A-Z0-9 ]+)?,?)+$/i.test((l.vehicles||'').trim());
+      const other = known ? '' : (l.vehicles||'');
+      const dumpster = (l.dumpsterSize||'').trim();
+      const hasDumpster = (dumpster && !/^(no|none|n\/a|0)$/i.test(dumpster)) ? 'Yes' : '';
+      dataRow([
+        normalizeDate(l.date) || l.date || '',
+        l.jobType || '',
+        hasVan, hasK1, hasK4, other,
+        hasDumpster, dumpster,
+        (l.numDollies!=null?l.numDollies:'')
+      ]);
+    });
+
+    // ── Freeze the title/info rows, autofilter the header-less top ──
+    ws.views = [{ state:'frozen', ySplit:6, showGridLines:false }];
+
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const datestamp = new Date().toISOString().split('T')[0];
+    a.download = `${(p.name||'project').replace(/[^a-z0-9]+/gi,'_')}_JobSummary_${datestamp}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showSuccess('Excel file exported');
+  } catch(e) {
+    showToast('Export failed: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export Excel'; }
+  }
 };
 
 // ── Worker table helpers ──────────────────────────────────
@@ -1578,7 +1669,7 @@ function getWorkersFromBody(tbodyId) {
 
 // ── Helpers ───────────────────────────────────────────────
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function statusBadge(s) { const m={'Active':'badge-blue','On Hold':'badge-gray','Completed':'badge-green'}; return `<span class="badge ${m[s]||'badge-gray'}">${esc(s||'&#8212;')}</span>`; }
+function statusBadge(s) { const m={'Active':'badge-blue','On Hold':'badge-gray','Completed':'badge-green'}; return `<span class="badge ${m[s]||'badge-gray'}">${esc(s||'—')}</span>`; }
 function jobTypeBadge(t) {
   if (t==='Packout')  return '<span class="badge badge-blue">Packout</span>';
   if (t==='Packback') return '<span class="badge" style="background:#EDE9FE;color:#6D28D9;">Packback</span>';
@@ -1591,7 +1682,7 @@ function legibilityBadge(l) {
   if(v==='good') return '<span class="badge badge-green">Good</span>';
   if(v==='partial') return '<span class="badge badge-amber">Partial</span>';
   if(v==='poor') return '<span class="badge badge-red">Poor</span>';
-  return `<span class="badge badge-gray">${esc(l||'&#8212;')}</span>`;
+  return `<span class="badge badge-gray">${esc(l||'—')}</span>`;
 }
 function formatDate(iso) { if(!iso) return '&#8212;'; try { return new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); } catch { return iso; } }
 // ── Copy-for-summary helpers (tab-separated, one row per log) ─────
