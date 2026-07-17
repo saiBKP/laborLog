@@ -416,9 +416,9 @@
       <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
         <div class="upload-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div>
         <h4>Tap to photograph or upload a log</h4>
-        <p>Opens rear camera on mobile. JPEG, PNG, HEIC supported.</p>
+        <p>Opens rear camera on mobile. Photos (JPEG, PNG, HEIC) or PDF files supported.</p>
       </div>
-      <input type="file" id="file-input" accept="image/*" capture="environment" onchange="handleFileSelect(event)">
+      <input type="file" id="file-input" accept="image/*,application/pdf" capture="environment" onchange="handleFileSelect(event)">
       <img id="preview-img" alt="Log preview">
     </div>
     <div class="form-card">
@@ -600,6 +600,7 @@
 </main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
 import { getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
@@ -616,6 +617,11 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+
+// pdf.js worker (needed for rendering PDF pages to an image in the browser)
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js';
+}
 const db  = getFirestore(app);
 
 // ── Google Drive config ──────────────────────────────────
@@ -1067,26 +1073,91 @@ window.cancelUpload = () => window.showProjectDetail(window.currentProjectId);
 window.handleFileSelect = e => {
   const file = e.target.files[0];
   if (!file) return;
+  const isPDF = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+  if (isPDF) {
+    handlePdfFile(file);
+  } else {
+    handleImageFile(file);
+  }
+};
+
+function handleImageFile(file) {
   const reader = new FileReader();
   reader.onload = ev => {
     const original = new Image();
-    original.onload = () => {
-      const result = compressToBudget(original, 900000);
-      selectedImageBase64 = result.base64;
-      selectedImageType   = 'image/jpeg';
-      const img = document.getElementById('preview-img');
-      img.src = result.dataUrl; img.style.display = 'block';
-      const zone = document.getElementById('upload-zone');
-      zone.classList.add('has-image');
-      zone.querySelector('.upload-icon').style.display = 'none';
-      zone.querySelector('h4').style.display = 'none';
-      zone.querySelector('p').style.display = 'none';
-      checkExtractReady();
-    };
+    original.onload = () => finalizeSelectedPhoto(compressToBudget(original, 900000));
+    original.onerror = () => showToast('Could not read that image file.');
     original.src = ev.target.result;
   };
   reader.readAsDataURL(file);
-};
+}
+
+// Renders the first page of a PDF to a high-resolution canvas, then runs it
+// through the exact same compression/preview pipeline as a regular photo —
+// so everything downstream (rotation, storage, extraction) works identically
+// whether the original file was a photo or a PDF.
+async function handlePdfFile(file) {
+  const zone = document.getElementById('upload-zone');
+  const heading = zone.querySelector('h4');
+  const sub = zone.querySelector('p');
+  const icon = zone.querySelector('.upload-icon');
+  const originalHeading = heading.textContent;
+
+  if (typeof pdfjsLib === 'undefined') {
+    showToast('PDF support did not load — check your connection and try again.');
+    return;
+  }
+
+  icon.style.display = 'none';
+  sub.style.display = 'none';
+  heading.style.display = '';
+  heading.textContent = 'Reading PDF…';
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const page = await pdf.getPage(1);
+
+    // Render at a resolution similar to our photo target (~2200px long side)
+    const baseViewport = page.getViewport({ scale: 1 });
+    const targetLongSide = 2200;
+    const longSide = Math.max(baseViewport.width, baseViewport.height);
+    const scale = Math.min(targetLongSide / longSide, 4); // cap scale to avoid huge canvases on tiny PDFs
+    const viewport = page.getViewport({ scale });
+
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff'; // PDFs can have transparent backgrounds; force white for JPEG
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    if (pdf.numPages > 1) {
+      showToast(`This PDF has ${pdf.numPages} pages — only page 1 was used.`);
+    }
+
+    // A canvas works as a drop-in source for compressToBudget, same as an <img>
+    finalizeSelectedPhoto(compressToBudget(canvas, 900000));
+  } catch(e) {
+    showToast('Could not read PDF: ' + e.message);
+  } finally {
+    heading.textContent = originalHeading;
+  }
+}
+
+function finalizeSelectedPhoto(result) {
+  selectedImageBase64 = result.base64;
+  selectedImageType   = 'image/jpeg';
+  const img = document.getElementById('preview-img');
+  img.src = result.dataUrl; img.style.display = 'block';
+  const zone = document.getElementById('upload-zone');
+  zone.classList.add('has-image');
+  zone.querySelector('.upload-icon').style.display = 'none';
+  zone.querySelector('h4').style.display = 'none';
+  zone.querySelector('p').style.display = 'none';
+  checkExtractReady();
+}
 
 // Compress a photo as SHARPLY as possible while staying under a base64 size
 // budget (Firestore's 1MB-per-field limit). Handwriting needs detail to read
