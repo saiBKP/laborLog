@@ -626,7 +626,7 @@ const db  = getFirestore(app);
 
 // ── Google Drive config ──────────────────────────────────
 // Paste the OAuth Client ID you create in Google Cloud Console here:
-const GOOGLE_CLIENT_ID = "918611231274-rf26kc1fb873vmepoofu9th64fhsv4ej.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID = "PASTE_YOUR_CLIENT_ID_HERE.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file";
 let driveTokenClient = null;
 let driveAccessToken = null;
@@ -1734,6 +1734,14 @@ window.exportCSV = async () => {
       r++;
     }
 
+    // ── Helper: is a YYYY-MM-DD date a Saturday or Sunday? ──
+    function isWeekendDate(isoDate) {
+      if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return false;
+      const d = new Date(isoDate + 'T00:00:00');
+      const day = d.getDay(); // 0 = Sunday, 6 = Saturday
+      return day === 0 || day === 6;
+    }
+
     // ═══ LABOR LOG ═══
     sectionHeader('LABOR LOG', BLUE);
     colHeaders(['Date','Job Type','Load & Depart','Return & Unload','Total Hrs','# Technicians','Tech Hours','# Supervisors','Supervisor Hrs','Team / Members','Foreman','Legibility']);
@@ -1744,8 +1752,10 @@ window.exportCSV = async () => {
       const ends   = workers.map(w=>w.endTime).filter(Boolean);
       const totalHrs = workers.reduce((s,w)=>s+(parseFloat(w.hours)||0),0);
       grandHours += totalHrs; grandTechs += workers.length;
+      const isoDate = normalizeDate(l.date);
+      const weekend = isWeekendDate(isoDate);
       dataRow([
-        normalizeDate(l.date) || l.date || '',
+        isoDate || l.date || '',
         l.jobType || '',
         starts[0] || '',
         ends[ends.length-1] || '',
@@ -1756,7 +1766,7 @@ window.exportCSV = async () => {
         workers.map(w=>w.name).filter(Boolean).join(', '),
         l.foreman || '',
         (l.legibility||'').replace(/^\w/,c=>c.toUpperCase())
-      ]);
+      ], weekend ? { fill: 'FFFFFF00' } : {}); // yellow highlight for weekend work
     });
     dataRow(['TOTAL','','','',grandHours.toFixed(2),grandTechs,grandHours.toFixed(2),'','','','',''],
       { bold:true, fill:'FFDCFCE7', color:'FF14532D' });
