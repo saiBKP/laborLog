@@ -132,12 +132,10 @@
 
   /* Tables */
   .table-wrap{overflow-x:auto;border-radius:var(--radius-lg);border:1.5px solid var(--border);background:var(--panel);box-shadow:var(--shadow-sm);-webkit-overflow-scrolling:touch;}
-  /* Always-visible scrollbar so users know the table scrolls sideways */
   .table-wrap::-webkit-scrollbar{height:10px;}
   .table-wrap::-webkit-scrollbar-track{background:var(--surface);border-radius:0 0 var(--radius-lg) var(--radius-lg);}
   .table-wrap::-webkit-scrollbar-thumb{background:var(--border-mid);border-radius:6px;}
   .table-wrap::-webkit-scrollbar-thumb:hover{background:var(--ink-faint);}
-  /* Keep the logs table from crushing columns; forces horizontal scroll instead of cut-off */
   .scroll-hint{font-size:.72rem;color:var(--ink-faint);margin:6px 2px 0;display:none;}
   @media(max-width:760px){.scroll-hint{display:block;}}
   table{width:100%;border-collapse:collapse;font-size:.875rem;}
@@ -274,8 +272,33 @@
     <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
     <span id="drive-btn-label">Connect Drive</span>
   </button>
+  <button id="drive-settings-btn" class="drive-btn" style="margin-left:0;padding:0 8px;width:32px;justify-content:center;" onclick="openDriveSettings()" title="Drive backup settings">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </button>
   <div class="sync-dot" id="sync-dot" title="Database connection"></div>
 </header>
+
+<!-- Drive Settings Modal -->
+<div id="drive-settings-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:500;align-items:center;justify-content:center;padding:20px;">
+  <div class="form-card" style="max-width:480px;width:100%;margin:0;max-height:85vh;overflow-y:auto;">
+    <h3>Google Drive Backup Settings</h3>
+    <p style="font-size:.82rem;color:var(--ink-muted);margin-bottom:14px;">
+      All labor log photos are automatically backed up to a Main Folder in your Google Drive. Each job gets its own subfolder inside it, named after the project.
+    </p>
+    <div class="field">
+      <label>Main Drive Folder</label>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select id="ds-main-folder" style="flex:1;"><option value="">— Not set —</option></select>
+        <button class="btn btn-secondary btn-sm" style="height:42px;white-space:nowrap;" onclick="refreshDriveFolders()" id="ds-refresh-folders">Load Folders</button>
+      </div>
+      <p style="font-size:.75rem;color:var(--ink-faint);margin-top:4px;" id="ds-drive-hint">Connect Google Drive, then load folders and pick your Main Labor Log Files folder.</p>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-secondary" onclick="closeDriveSettings()">Close</button>
+      <button class="btn btn-primary" onclick="saveMainDriveFolder()">Save</button>
+    </div>
+  </div>
+</div>
 
 <main id="app-body" style="display:none;">
 
@@ -375,20 +398,24 @@
           </select>
         </div>
       </div>
-      <div class="field">
-        <label>Google Drive Folder (for photo uploads)</label>
-        <div style="display:flex;gap:8px;align-items:center;">
-          <select id="ep-drive-folder" style="flex:1;"><option value="">— No Drive folder —</option></select>
-          <button class="btn btn-secondary btn-sm" style="height:42px;white-space:nowrap;" onclick="refreshDriveFolders()" id="ep-refresh-folders">Load Folders</button>
-        </div>
-        <p style="font-size:.75rem;color:var(--ink-faint);margin-top:4px;" id="ep-drive-hint">Connect Google Drive (top right) to choose a folder.</p>
-      </div>
       <div class="form-actions">
         <button class="btn btn-secondary" onclick="hideEditProjectForm()">Cancel</button>
         <button class="btn btn-primary" onclick="saveProjectEdits()">Save Changes</button>
       </div>
     </div>
     <div class="chips" id="pd-chips"></div>
+    <div class="form-card" id="pd-drive-status" style="display:none;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <div>
+          <div style="font-weight:700;font-size:.9rem;color:var(--ink);margin-bottom:2px;">Google Drive Backup</div>
+          <div style="font-size:.8rem;color:var(--ink-muted);" id="pd-drive-status-text">&#8212;</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="resyncCurrentProject()" id="pd-resync-btn">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          Resync to Drive
+        </button>
+      </div>
+    </div>
     <div class="section-label">Labor Logs</div>
     <div id="pd-logs-list" class="logs-list"></div>
     <div id="pd-empty" class="empty-state" style="display:none;">
@@ -800,18 +827,44 @@ window.deleteProject = async () => {
   if (!confirm(msg)) return;
   setSyncing();
   try {
+    const projectLogs = allLogs.filter(l => l.projectId === window.currentProjectId);
     const batch = writeBatch(db);
-    allLogs.filter(l => l.projectId === window.currentProjectId).forEach(l => {
+    projectLogs.forEach(l => {
       batch.delete(doc(db,'logs',l.id));
       batch.delete(doc(db,'logImages',l.id));
     });
     batch.delete(doc(db,'projects',window.currentProjectId));
     await batch.commit();
+    // Best-effort cleanup of each log's Drive backup copy
+    if (driveTokenValid()) {
+      const driveIds = projectLogs.map(l => l.driveFileId).filter(Boolean);
+      if (driveIds.length) {
+        let failed = 0;
+        for (const fid of driveIds) { if (!(await deleteFromDrive(fid))) failed++; }
+        if (failed) showToast(`Project deleted, but ${failed} Drive backup file(s) could not be removed.`);
+      }
+    } else if (projectLogs.some(l => l.driveFileId)) {
+      showToast('Project deleted, but Drive isn\'t connected — its backed-up photos remain in Drive.');
+    }
     window.showView('projects');
   } catch(e) { showToast('Error: ' + e.message); }
 };
 
 // ── Google Drive integration ──────────────────────────────
+// Architecture: one global "Main" folder (set once in Drive Settings) that
+// contains one subfolder per project/job, named after the project. Photos
+// for a log go into their project's subfolder. Job subfolders are found-or-
+// created automatically — the user never manages per-project folders by hand.
+const MAIN_FOLDER_KEY = 'fll_main_drive_folder'; // localStorage: {id, name}
+let jobFolderCache = {}; // projectId -> driveFolderId, resolved lazily and cached in-memory
+
+function getMainDriveFolder() {
+  try { return JSON.parse(localStorage.getItem(MAIN_FOLDER_KEY) || 'null'); } catch(e) { return null; }
+}
+function setMainDriveFolder(id, name) {
+  try { localStorage.setItem(MAIN_FOLDER_KEY, JSON.stringify({ id, name })); } catch(e){}
+}
+
 function initDriveClient() {
   if (driveTokenClient || typeof google === 'undefined' || !google.accounts) return;
   driveTokenClient = google.accounts.oauth2.initTokenClient({
@@ -822,21 +875,15 @@ function initDriveClient() {
         saveDriveToken(resp.access_token, Number(resp.expires_in) || 3600);
         updateDriveButton(true);
         showToast('Google Drive connected.');
-        // If the edit form is open, auto-load folders
-        if (document.getElementById('edit-project-form') &&
-            document.getElementById('edit-project-form').style.display !== 'none') {
-          refreshDriveFolders();
-        }
+        const modal = document.getElementById('drive-settings-modal');
+        if (modal && modal.style.display !== 'none') refreshDriveFolders();
+        refreshProjectDriveStatus();
       }
     }
   });
 }
 
 window.handleDriveButton = () => {
-  if (GOOGLE_CLIENT_ID.startsWith('PASTE_')) {
-    showToast('Google Drive not configured yet — add your Client ID.');
-    return;
-  }
   initDriveClient();
   if (!driveTokenClient) { showToast('Drive library still loading, try again.'); return; }
   // If we ever consented before, try silent refresh (no popup); otherwise show consent
@@ -851,8 +898,38 @@ function updateDriveButton(connected) {
   else { btn.classList.remove('connected'); lbl.textContent = 'Connect Drive'; }
 }
 
+// ── Drive Settings modal (choose the Main folder) ──────────
+window.openDriveSettings = () => {
+  const main = getMainDriveFolder();
+  const sel = document.getElementById('ds-main-folder');
+  sel.innerHTML = '<option value="">— Not set —</option>';
+  if (main && main.id) {
+    const o = document.createElement('option');
+    o.value = main.id; o.textContent = main.name || 'Saved folder';
+    o.selected = true; sel.appendChild(o);
+  }
+  document.getElementById('ds-drive-hint').textContent = driveTokenValid()
+    ? 'Click "Load Folders" to pick or refresh.'
+    : 'Connect Google Drive (top right), then click "Load Folders".';
+  document.getElementById('drive-settings-modal').style.display = 'flex';
+};
+window.closeDriveSettings = () => {
+  document.getElementById('drive-settings-modal').style.display = 'none';
+};
+window.saveMainDriveFolder = () => {
+  const sel = document.getElementById('ds-main-folder');
+  const id = sel.value;
+  const name = id ? (sel.options[sel.selectedIndex]?.text || '') : '';
+  if (!id) { showToast('Pick a folder first.'); return; }
+  setMainDriveFolder(id, name);
+  jobFolderCache = {}; // main folder changed — any cached job subfolder ids are now stale
+  showSuccess('Main Drive folder saved: ' + name);
+  window.closeDriveSettings();
+  refreshProjectDriveStatus();
+};
+
 window.refreshDriveFolders = async () => {
-  const hint = document.getElementById('ep-drive-hint');
+  const hint = document.getElementById('ds-drive-hint');
   if (!driveTokenValid()) {
     hint.textContent = 'Connecting to Google Drive…';
     window.handleDriveButton();  // will refresh token, then user can click Load again
@@ -882,24 +959,54 @@ window.refreshDriveFolders = async () => {
       pageToken = data.nextPageToken || '';
     } while (pageToken && driveFolderCache.length < 1000);
 
-    populateFolderDropdown();
+    const sel = document.getElementById('ds-main-folder');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— Not set —</option>' +
+      driveFolderCache.map(f => `<option value="${f.id}">${esc(f.name)}</option>`).join('');
+    if (current) sel.value = current;
     hint.textContent = driveFolderCache.length
-      ? driveFolderCache.length + ' folders loaded. Pick one for this project.'
+      ? driveFolderCache.length + ' folders loaded. Pick your Main Labor Log Files folder.'
       : 'No folders found in your Drive. Create one in Google Drive first, then reload.';
   } catch(e) {
     hint.textContent = 'Could not load folders: ' + e.message;
   }
 };
 
-function populateFolderDropdown(selectedId) {
-  const sel = document.getElementById('ep-drive-folder');
-  const current = selectedId || sel.value;
-  sel.innerHTML = '<option value="">— No Drive folder —</option>' +
-    driveFolderCache.map(f => `<option value="${f.id}">${esc(f.name)}</option>`).join('');
-  if (current) sel.value = current;
+// Find a subfolder by exact name inside a parent folder, or create it if missing.
+// Returns the folder id, or null if Drive isn't available right now.
+async function findOrCreateJobFolder(projectName) {
+  const main = getMainDriveFolder();
+  if (!driveTokenValid() || !main || !main.id) return null;
+  if (jobFolderCache[projectName]) return jobFolderCache[projectName];
+  try {
+    const q = encodeURIComponent(
+      `mimeType='application/vnd.google-apps.folder' and trashed=false and '${main.id}' in parents and name='${projectName.replace(/'/g,"\\'")}'`
+    );
+    const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
+    const searchRes = await fetch(searchUrl, { headers: { Authorization: 'Bearer ' + driveAccessToken } });
+    if (!searchRes.ok) throw new Error('folder lookup ' + searchRes.status);
+    const searchData = await searchRes.json();
+    if (searchData.files && searchData.files.length) {
+      jobFolderCache[projectName] = searchData.files[0].id;
+      return searchData.files[0].id;
+    }
+    // Not found — create it
+    const createRes = await fetch('https://www.googleapis.com/drive/v3/files?supportsAllDrives=true', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + driveAccessToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: projectName, mimeType: 'application/vnd.google-apps.folder', parents: [main.id] })
+    });
+    if (!createRes.ok) throw new Error('folder create ' + createRes.status);
+    const created = await createRes.json();
+    jobFolderCache[projectName] = created.id;
+    return created.id;
+  } catch(e) {
+    console.error('findOrCreateJobFolder failed', e);
+    return null;
+  }
 }
 
-// Upload a base64 image to the project's Drive folder. Returns file id or null.
+// Upload a base64 image to a Drive folder. Returns file id or null.
 async function uploadToDrive(base64, filename, folderId) {
   if (!driveTokenValid() || !folderId) return null;
   try {
@@ -927,6 +1034,134 @@ async function uploadToDrive(base64, filename, folderId) {
   }
 }
 
+// Delete a file from Drive by id. Returns true on success (including "already gone").
+async function deleteFromDrive(fileId) {
+  if (!driveTokenValid() || !fileId) return false;
+  try {
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?supportsAllDrives=true`, {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer ' + driveAccessToken }
+    });
+    return res.ok || res.status === 404; // 404 = already deleted, treat as success
+  } catch(e) {
+    console.error('Drive delete failed', e);
+    return false;
+  }
+}
+
+// Filename used for a log's photo in Drive — stable so resync can recognize
+// files that already exist without relying only on the stored driveFileId.
+function driveFilenameForLog(log) {
+  const datePart = log.date || 'undated';
+  const namePart = (log.foreman || 'log').replace(/[^a-z0-9]+/gi,'_');
+  return `LaborLog_${datePart}_${namePart}.jpg`;
+}
+
+// Update the small "Google Drive Backup" status card on the project detail view.
+window.refreshProjectDriveStatus = function refreshProjectDriveStatus() {
+  const card = document.getElementById('pd-drive-status');
+  const text = document.getElementById('pd-drive-status-text');
+  if (!card || !text || !window.currentProjectId) return;
+  const main = getMainDriveFolder();
+  const logs = allLogs.filter(l => l.projectId === window.currentProjectId);
+  const synced = logs.filter(l => l.driveFileId).length;
+  if (!main || !main.id) {
+    card.style.display = 'block';
+    text.innerHTML = 'No Main Drive folder set. <a href="#" onclick="openDriveSettings();return false;" style="color:var(--blue);font-weight:600;">Set it up</a> to enable backups.';
+    return;
+  }
+  card.style.display = 'block';
+  text.textContent = `${synced} of ${logs.length} log photo${logs.length===1?'':'s'} backed up to Drive.`;
+};
+
+// ── Resync / Audit: reconcile this project's logs against Drive ───────────
+// Uploads any log that's missing its Drive backup (driveFileId not set, e.g.
+// because it was saved before Drive was connected, or the upload failed at
+// save time), and removes Drive files whose Firestore log no longer exists
+// (e.g. deleted while the deleting device had no valid Drive session).
+// This is the safety net for the "eventually consistent" gaps in live sync.
+window.resyncCurrentProject = async () => {
+  const proj = allProjects.find(p => p.id === window.currentProjectId);
+  if (!proj) return;
+  const main = getMainDriveFolder();
+  if (!main || !main.id) { showToast('Set a Main Drive folder first (gear icon, top right).'); return; }
+  if (!driveTokenValid()) {
+    showToast('Connecting to Google Drive…');
+    window.handleDriveButton();
+    return;
+  }
+
+  const btn = document.getElementById('pd-resync-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Resyncing&#8230;'; }
+  setSyncing();
+
+  try {
+    const folderId = await findOrCreateJobFolder(proj.name);
+    if (!folderId) { showToast('Could not reach the Drive job folder.'); return; }
+
+    // 1) List what's actually in the Drive job folder right now
+    const q = encodeURIComponent(`trashed=false and '${folderId}' in parents`);
+    const listUrl = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
+    const listRes = await fetch(listUrl, { headers: { Authorization: 'Bearer ' + driveAccessToken } });
+    if (!listRes.ok) throw new Error('Drive list failed: ' + listRes.status);
+    const driveFiles = (await listRes.json()).files || [];
+    const driveFilesById = new Map(driveFiles.map(f => [f.id, f]));
+
+    const projectLogs = allLogs.filter(l => l.projectId === window.currentProjectId);
+    let uploaded = 0, uploadFailed = 0, cleaned = 0, cleanFailed = 0;
+
+    // 2) Upload any log missing a Drive copy
+    for (const log of projectLogs) {
+      if (log.driveFileId && driveFilesById.has(log.driveFileId)) continue; // already synced and file still exists
+      let base64 = null;
+      try {
+        const imgSnap = await getDoc(doc(db,'logImages',log.id));
+        if (imgSnap.exists()) {
+          const dataUrl = imgSnap.data().imageData || '';
+          const m = dataUrl.match(/^data:[^;]+;base64,(.+)$/);
+          if (m) base64 = m[1];
+        }
+      } catch(e) {}
+      if (!base64) continue; // no photo saved for this log — nothing to back up
+      const fname = driveFilenameForLog(log);
+      const fileId = await uploadToDrive(base64, fname, folderId);
+      if (fileId) {
+        try { await updateDoc(doc(db,'logs',log.id), { driveFileId: fileId }); } catch(e){}
+        uploaded++;
+      } else uploadFailed++;
+    }
+
+    // 3) Remove Drive files that no longer have a matching Firestore log.
+    // Only ever removes files this app itself uploaded (tracked via driveFileId
+    // on some log at some point) — never touches unrelated files a person may
+    // have manually placed in the job folder.
+    const knownFileIds = new Set(projectLogs.map(l => l.driveFileId).filter(Boolean));
+    for (const f of driveFiles) {
+      const looksLikeOurs = /^LaborLog_/.test(f.name);
+      if (!looksLikeOurs) continue; // don't touch files we didn't create
+      if (knownFileIds.has(f.id)) continue; // still referenced by a live log
+      const ok = await deleteFromDrive(f.id);
+      if (ok) cleaned++; else cleanFailed++;
+    }
+
+    const parts = [];
+    if (uploaded) parts.push(`${uploaded} photo${uploaded===1?'':'s'} uploaded`);
+    if (cleaned) parts.push(`${cleaned} orphaned file${cleaned===1?'':'s'} removed`);
+    if (!parts.length && !uploadFailed && !cleanFailed) parts.push('already in sync');
+    if (uploadFailed) parts.push(`${uploadFailed} upload${uploadFailed===1?'':'s'} failed`);
+    if (cleanFailed) parts.push(`${cleanFailed} cleanup${cleanFailed===1?'':'s'} failed`);
+    showSuccess('Resync complete: ' + parts.join(', '));
+    refreshProjectDriveStatus();
+  } catch(e) {
+    showToast('Resync failed: ' + e.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> Resync to Drive';
+    }
+  }
+};
+
 window.showEditProjectForm = () => {
   const p = allProjects.find(x => x.id === window.currentProjectId);
   if (!p) return;
@@ -934,20 +1169,6 @@ window.showEditProjectForm = () => {
   document.getElementById('ep-client').value  = p.client || '';
   document.getElementById('ep-address').value = p.address || '';
   document.getElementById('ep-status').value  = p.status || 'Active';
-  // Drive folder dropdown
-  if (driveFolderCache.length) populateFolderDropdown(p.driveFolderId || '');
-  else {
-    const sel = document.getElementById('ep-drive-folder');
-    sel.innerHTML = '<option value="">— No Drive folder —</option>';
-    if (p.driveFolderId) {
-      const o = document.createElement('option');
-      o.value = p.driveFolderId; o.textContent = p.driveFolderName || 'Saved folder';
-      o.selected = true; sel.appendChild(o);
-    }
-  }
-  document.getElementById('ep-drive-hint').textContent = driveTokenValid()
-    ? 'Click "Load Folders" to refresh the list.'
-    : 'Connect Google Drive (top right), then click "Load Folders".';
   document.getElementById('edit-project-form').style.display = 'block';
   document.getElementById('edit-project-form').scrollIntoView({ behavior:'smooth', block:'center' });
 };
@@ -961,18 +1182,31 @@ window.saveProjectEdits = async () => {
   if (!name) { document.getElementById('ep-name').focus(); return; }
   setSyncing();
   try {
-    const folderSel = document.getElementById('ep-drive-folder');
-    const folderId = folderSel.value;
-    const folderName = folderId ? (folderSel.options[folderSel.selectedIndex]?.text || '') : '';
+    const p = allProjects.find(x => x.id === window.currentProjectId);
+    const renamed = p && p.name !== name;
     await updateDoc(doc(db,'projects',window.currentProjectId), {
       name,
       client:  document.getElementById('ep-client').value.trim(),
       address: document.getElementById('ep-address').value.trim(),
       status:  document.getElementById('ep-status').value,
-      driveFolderId:   folderId,
-      driveFolderName: folderName,
       lastEdited: new Date().toISOString()
     });
+    // If the project was renamed, its Drive job subfolder name is now stale.
+    // Rename the Drive folder to match, so "exact same as the database" holds.
+    if (renamed) {
+      const oldFolderId = jobFolderCache[p.name];
+      delete jobFolderCache[p.name];
+      if (oldFolderId && driveTokenValid()) {
+        try {
+          await fetch(`https://www.googleapis.com/drive/v3/files/${oldFolderId}?supportsAllDrives=true`, {
+            method: 'PATCH',
+            headers: { Authorization: 'Bearer ' + driveAccessToken, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+          });
+          jobFolderCache[name] = oldFolderId;
+        } catch(e) { console.error('Drive folder rename failed', e); }
+      }
+    }
     window.hideEditProjectForm();
     window.showProjectDetail(window.currentProjectId);
     showSuccess('Project updated');
@@ -998,6 +1232,7 @@ window.showProjectDetail = (projectId) => {
   document.getElementById('pd-chips').innerHTML = `
     <div class="chip chip-blue"><div class="chip-val">${logs.length}</div><div class="chip-lbl">Total Logs</div></div>
     <div class="chip"><div class="chip-val">${hrs.toFixed(1)}</div><div class="chip-lbl">Total Hours</div></div>`;
+  refreshProjectDriveStatus();
 
   const listEl = document.getElementById('pd-logs-list');
   const empty = document.getElementById('pd-empty');
@@ -1420,14 +1655,22 @@ window.saveLog = async () => {
       await setDoc(doc(db,'logImages',logRef.id), {
         imageData: `data:image/jpeg;base64,${selectedImageBase64}`
       });
-      // Also upload a copy to the project's Google Drive folder, if configured
+      // Also upload a copy to this project's auto-created Drive job subfolder,
+      // if a Main Drive folder is configured and connected right now.
       const proj = allProjects.find(p => p.id === window.currentProjectId);
-      if (proj && proj.driveFolderId && driveTokenValid()) {
-        const datePart = (logData.date || new Date().toISOString().split('T')[0]);
-        const namePart = (logData.foreman || 'log').replace(/[^a-z0-9]+/gi,'_');
-        const fname = `LaborLog_${datePart}_${namePart}.jpg`;
-        const fileId = await uploadToDrive(selectedImageBase64, fname, proj.driveFolderId);
-        if (fileId) { try { await updateDoc(doc(db,'logs',logRef.id), { driveFileId: fileId }); } catch(e){} }
+      const main = getMainDriveFolder();
+      if (proj && main && main.id && driveTokenValid()) {
+        const folderId = await findOrCreateJobFolder(proj.name);
+        if (folderId) {
+          const fname = driveFilenameForLog(logData);
+          const fileId = await uploadToDrive(selectedImageBase64, fname, folderId);
+          if (fileId) { try { await updateDoc(doc(db,'logs',logRef.id), { driveFileId: fileId }); } catch(e){} }
+          else showToast('Log saved, but the Drive backup upload failed — use Resync to Drive later.');
+        } else {
+          showToast('Log saved, but could not reach the Drive job folder — use Resync to Drive later.');
+        }
+      } else if (main && main.id && !driveTokenValid()) {
+        showToast('Log saved, but Drive isn\'t connected right now — use Resync to Drive later to back this photo up.');
       }
     }
     window.showProjectDetail(window.currentProjectId);
@@ -1633,10 +1876,23 @@ window.deleteLog = async () => {
   if (!confirm('Delete this log? This cannot be undone.')) return;
   setSyncing();
   try {
+    const log = allLogs.find(l => l.id === window.currentLogId);
+    const driveFileId = log && log.driveFileId;
     const batch = writeBatch(db);
     batch.delete(doc(db,'logs',window.currentLogId));
     batch.delete(doc(db,'logImages',window.currentLogId));
     await batch.commit();
+    // Best-effort: also remove the Drive backup copy. If Drive isn't reachable
+    // right now, the Firestore delete still goes through — the Drive copy will
+    // just be an orphan until someone runs Resync to Drive, which cleans these up.
+    if (driveFileId) {
+      if (driveTokenValid()) {
+        const ok = await deleteFromDrive(driveFileId);
+        if (!ok) showToast('Log deleted, but its Drive backup could not be removed — Resync to Drive will clean it up.');
+      } else {
+        showToast('Log deleted, but Drive isn\'t connected — Resync to Drive later to remove its backup copy.');
+      }
+    }
     window.showProjectDetail(window.currentProjectId);
   } catch(e) { showToast('Error: ' + e.message); }
 };
