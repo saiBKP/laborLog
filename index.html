@@ -295,6 +295,17 @@
       </div>
       <p style="font-size:.75rem;color:var(--ink-faint);margin-top:4px;" id="ds-drive-hint">Connect Google Drive, then load folders and pick your Main Labor Log Files folder.</p>
     </div>
+    <div style="border-top:1px solid var(--border);margin-top:18px;padding-top:16px;">
+      <div style="font-weight:700;font-size:.9rem;color:var(--ink);margin-bottom:4px;">Resync All Projects</div>
+      <p style="font-size:.78rem;color:var(--ink-muted);margin-bottom:10px;">
+        Goes through every project and uploads any log photo that's missing from Drive, and removes Drive files whose log was deleted. Use this any time to double-check everything is up to date — especially after connecting Drive for the first time.
+      </p>
+      <button class="btn btn-secondary" style="width:100%;justify-content:center;" onclick="resyncAllProjects()" id="ds-resync-all-btn">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        Resync All Projects to Drive
+      </button>
+      <p style="font-size:.75rem;color:var(--ink-faint);margin-top:8px;" id="ds-resync-all-progress"></p>
+    </div>
     <div class="form-actions">
       <button class="btn btn-secondary" onclick="closeDriveSettings()">Close</button>
       <button class="btn btn-primary" onclick="saveMainDriveFolder()">Save</button>
@@ -1082,6 +1093,62 @@ window.refreshProjectDriveStatus = function refreshProjectDriveStatus() {
 // save time), and removes Drive files whose Firestore log no longer exists
 // (e.g. deleted while the deleting device had no valid Drive session).
 // This is the safety net for the "eventually consistent" gaps in live sync.
+// Core resync logic for a single project — shared by the per-project "Resync
+// to Drive" button and the "Resync All Projects" tool. Returns stats rather
+// than touching the DOM, so callers can aggregate results across many
+// projects or report on just one.
+async function resyncProjectCore(proj) {
+  const stats = { uploaded: 0, uploadFailed: 0, cleaned: 0, cleanFailed: 0, skippedNoFolder: false };
+  const folderId = await findOrCreateJobFolder(proj.name);
+  if (!folderId) { stats.skippedNoFolder = true; return stats; }
+
+  // 1) List what's actually in the Drive job folder right now
+  const q = encodeURIComponent(`trashed=false and '${folderId}' in parents`);
+  const listUrl = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
+  const listRes = await fetch(listUrl, { headers: { Authorization: 'Bearer ' + driveAccessToken } });
+  if (!listRes.ok) throw new Error('Drive list failed: ' + listRes.status);
+  const driveFiles = (await listRes.json()).files || [];
+  const driveFilesById = new Map(driveFiles.map(f => [f.id, f]));
+
+  const projectLogs = allLogs.filter(l => l.projectId === proj.id);
+
+  // 2) Upload any log missing a Drive copy
+  for (const log of projectLogs) {
+    if (log.driveFileId && driveFilesById.has(log.driveFileId)) continue; // already synced and file still exists
+    let base64 = null;
+    try {
+      const imgSnap = await getDoc(doc(db,'logImages',log.id));
+      if (imgSnap.exists()) {
+        const dataUrl = imgSnap.data().imageData || '';
+        const m = dataUrl.match(/^data:[^;]+;base64,(.+)$/);
+        if (m) base64 = m[1];
+      }
+    } catch(e) {}
+    if (!base64) continue; // no photo saved for this log — nothing to back up
+    const fname = driveFilenameForLog(log);
+    const fileId = await uploadToDrive(base64, fname, folderId);
+    if (fileId) {
+      try { await updateDoc(doc(db,'logs',log.id), { driveFileId: fileId }); } catch(e){}
+      stats.uploaded++;
+    } else stats.uploadFailed++;
+  }
+
+  // 3) Remove Drive files that no longer have a matching Firestore log.
+  // Only ever removes files this app itself uploaded (tracked via driveFileId
+  // on some log at some point) — never touches unrelated files a person may
+  // have manually placed in the job folder.
+  const knownFileIds = new Set(projectLogs.map(l => l.driveFileId).filter(Boolean));
+  for (const f of driveFiles) {
+    const looksLikeOurs = /^LaborLog_/.test(f.name);
+    if (!looksLikeOurs) continue; // don't touch files we didn't create
+    if (knownFileIds.has(f.id)) continue; // still referenced by a live log
+    const ok = await deleteFromDrive(f.id);
+    if (ok) stats.cleaned++; else stats.cleanFailed++;
+  }
+
+  return stats;
+}
+
 window.resyncCurrentProject = async () => {
   const proj = allProjects.find(p => p.id === window.currentProjectId);
   if (!proj) return;
@@ -1098,60 +1165,14 @@ window.resyncCurrentProject = async () => {
   setSyncing();
 
   try {
-    const folderId = await findOrCreateJobFolder(proj.name);
-    if (!folderId) { showToast('Could not reach the Drive job folder.'); return; }
-
-    // 1) List what's actually in the Drive job folder right now
-    const q = encodeURIComponent(`trashed=false and '${folderId}' in parents`);
-    const listUrl = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
-    const listRes = await fetch(listUrl, { headers: { Authorization: 'Bearer ' + driveAccessToken } });
-    if (!listRes.ok) throw new Error('Drive list failed: ' + listRes.status);
-    const driveFiles = (await listRes.json()).files || [];
-    const driveFilesById = new Map(driveFiles.map(f => [f.id, f]));
-
-    const projectLogs = allLogs.filter(l => l.projectId === window.currentProjectId);
-    let uploaded = 0, uploadFailed = 0, cleaned = 0, cleanFailed = 0;
-
-    // 2) Upload any log missing a Drive copy
-    for (const log of projectLogs) {
-      if (log.driveFileId && driveFilesById.has(log.driveFileId)) continue; // already synced and file still exists
-      let base64 = null;
-      try {
-        const imgSnap = await getDoc(doc(db,'logImages',log.id));
-        if (imgSnap.exists()) {
-          const dataUrl = imgSnap.data().imageData || '';
-          const m = dataUrl.match(/^data:[^;]+;base64,(.+)$/);
-          if (m) base64 = m[1];
-        }
-      } catch(e) {}
-      if (!base64) continue; // no photo saved for this log — nothing to back up
-      const fname = driveFilenameForLog(log);
-      const fileId = await uploadToDrive(base64, fname, folderId);
-      if (fileId) {
-        try { await updateDoc(doc(db,'logs',log.id), { driveFileId: fileId }); } catch(e){}
-        uploaded++;
-      } else uploadFailed++;
-    }
-
-    // 3) Remove Drive files that no longer have a matching Firestore log.
-    // Only ever removes files this app itself uploaded (tracked via driveFileId
-    // on some log at some point) — never touches unrelated files a person may
-    // have manually placed in the job folder.
-    const knownFileIds = new Set(projectLogs.map(l => l.driveFileId).filter(Boolean));
-    for (const f of driveFiles) {
-      const looksLikeOurs = /^LaborLog_/.test(f.name);
-      if (!looksLikeOurs) continue; // don't touch files we didn't create
-      if (knownFileIds.has(f.id)) continue; // still referenced by a live log
-      const ok = await deleteFromDrive(f.id);
-      if (ok) cleaned++; else cleanFailed++;
-    }
-
+    const stats = await resyncProjectCore(proj);
+    if (stats.skippedNoFolder) { showToast('Could not reach the Drive job folder.'); return; }
     const parts = [];
-    if (uploaded) parts.push(`${uploaded} photo${uploaded===1?'':'s'} uploaded`);
-    if (cleaned) parts.push(`${cleaned} orphaned file${cleaned===1?'':'s'} removed`);
-    if (!parts.length && !uploadFailed && !cleanFailed) parts.push('already in sync');
-    if (uploadFailed) parts.push(`${uploadFailed} upload${uploadFailed===1?'':'s'} failed`);
-    if (cleanFailed) parts.push(`${cleanFailed} cleanup${cleanFailed===1?'':'s'} failed`);
+    if (stats.uploaded) parts.push(`${stats.uploaded} photo${stats.uploaded===1?'':'s'} uploaded`);
+    if (stats.cleaned) parts.push(`${stats.cleaned} orphaned file${stats.cleaned===1?'':'s'} removed`);
+    if (!parts.length && !stats.uploadFailed && !stats.cleanFailed) parts.push('already in sync');
+    if (stats.uploadFailed) parts.push(`${stats.uploadFailed} upload${stats.uploadFailed===1?'':'s'} failed`);
+    if (stats.cleanFailed) parts.push(`${stats.cleanFailed} cleanup${stats.cleanFailed===1?'':'s'} failed`);
     showSuccess('Resync complete: ' + parts.join(', '));
     refreshProjectDriveStatus();
   } catch(e) {
@@ -1161,6 +1182,58 @@ window.resyncCurrentProject = async () => {
       btn.disabled = false;
       btn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> Resync to Drive';
     }
+  }
+};
+
+// Resync every project, one at a time, reporting live progress. Triggerable
+// from the Drive Settings modal ("gear icon, top right") since that's the
+// natural place someone checks after connecting Drive or setting the Main
+// folder — no need to click into each project individually.
+window.resyncAllProjects = async () => {
+  const main = getMainDriveFolder();
+  if (!main || !main.id) { showToast('Set a Main Drive folder first.'); return; }
+  if (!driveTokenValid()) {
+    showToast('Connecting to Google Drive…');
+    window.handleDriveButton();
+    return;
+  }
+  if (!allProjects.length) { showToast('No projects to resync.'); return; }
+
+  const btn = document.getElementById('ds-resync-all-btn');
+  const progressEl = document.getElementById('ds-resync-all-progress');
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Resyncing all projects&#8230;'; }
+  setSyncing();
+
+  let totalUploaded = 0, totalCleaned = 0, totalUploadFailed = 0, totalCleanFailed = 0, projectsFailed = 0;
+  for (let i = 0; i < allProjects.length; i++) {
+    const proj = allProjects[i];
+    if (progressEl) progressEl.textContent = `Resyncing ${i+1} of ${allProjects.length}: ${proj.name}…`;
+    try {
+      const stats = await resyncProjectCore(proj);
+      totalUploaded += stats.uploaded;
+      totalCleaned += stats.cleaned;
+      totalUploadFailed += stats.uploadFailed;
+      totalCleanFailed += stats.cleanFailed;
+    } catch(e) {
+      projectsFailed++;
+      console.error('Resync failed for project', proj.name, e);
+    }
+  }
+
+  const parts = [];
+  if (totalUploaded) parts.push(`${totalUploaded} photo${totalUploaded===1?'':'s'} uploaded`);
+  if (totalCleaned) parts.push(`${totalCleaned} orphaned file${totalCleaned===1?'':'s'} removed`);
+  if (!parts.length && !totalUploadFailed && !totalCleanFailed && !projectsFailed) parts.push('everything already in sync');
+  if (totalUploadFailed) parts.push(`${totalUploadFailed} upload${totalUploadFailed===1?'':'s'} failed`);
+  if (totalCleanFailed) parts.push(`${totalCleanFailed} cleanup${totalCleanFailed===1?'':'s'} failed`);
+  if (projectsFailed) parts.push(`${projectsFailed} project${projectsFailed===1?'':'s'} could not be reached`);
+
+  if (progressEl) progressEl.textContent = `Done — ${allProjects.length} project${allProjects.length===1?'':'s'} checked.`;
+  showSuccess('Resync all complete: ' + parts.join(', '));
+  refreshProjectDriveStatus();
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> Resync All Projects to Drive';
   }
 };
 
