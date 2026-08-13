@@ -388,6 +388,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Export Excel
         </button>
+        <button class="btn btn-secondary" id="download-photos-btn" onclick="downloadProjectPhotos()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          Download Photos
+        </button>
         <button class="btn btn-primary" onclick="goToUpload()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           Upload Log
@@ -641,6 +645,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
 import { getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
@@ -1545,7 +1550,7 @@ For "overall_legibility": rate the page as a whole — "good" if nearly everythi
 
 For "job_type": classify the log as one of: Packout (removing/packing contents out of a property), Packback (returning/replacing contents back into a property), or Other if it is neither or unclear.
 
-For the "vehicles" field, the company fleet is: K1 = 16ft Truck, K2 = Cargo Van, K3 = Cargo Van, K4 = 21ft Truck. When you see a truck code like K1, K2, K3, or K4, output it WITH its type, formatted like "K2 - Cargo Van". If several trucks are listed, separate them with a comma (e.g. "K1 - 16ft Truck, K4 - 21ft Truck"). If a rented or unknown vehicle is listed, keep it as written.
+For the "vehicles" field, the company fleet is: K1 = 16ft Truck, K2 = Cargo Van, K3 = Cargo Van, K4 = 21ft Truck. When you see a truck code like K1, K2, K3, or K4, output it WITH its type, formatted like "K2 - Cargo Van". If several trucks are listed, separate them with a comma (e.g. "K1 - 16ft Truck, K4 - 21ft Truck"). Rented trucks are also common — if a rental truck's size class is written or implied as 16-20ft (or similar, e.g. "rental 16ft", "rented 18-20"), output it as "Rental Truck 16-20"; if its size class is 21-27ft (e.g. "rental 24ft", "rented 21-27"), output it as "Rental 21-27". If a rental's size can't be determined, or the vehicle is otherwise unknown, keep it as written.
 
 Before finalizing your answer, silently re-check: does the number of entries in "workers" match the number of rows you counted on the page in step 1? If not, go back and find the missing row(s). Also double-check: if the foreman's name is written anywhere in the worker rows with hours, is that row included in "workers"?`;
 
@@ -1611,7 +1616,11 @@ window.extractData = async () => {
 // "2026-06-14", "June 14, 2026", "14 June 2026", etc.
 // Expand company truck codes to "CODE - Type". Safety net in case the AI
 // or a human types just "K2". Leaves rented/unknown vehicles untouched.
+// Also recognizes rental trucks by size class (16-20ft / 21-27ft) and
+// normalizes them to a consistent label, the same way K-codes are normalized.
 const TRUCK_TYPES = { K1: '16ft Truck', K2: 'Cargo Van', K3: 'Cargo Van', K4: '21ft Truck' };
+const RENTAL_16_20_RE = /^rental\b.*?(?:16\s*[-\u2013]\s*20|16\s*20)/i;
+const RENTAL_21_27_RE = /^rental\b.*?(?:21\s*[-\u2013]\s*27|21\s*27)/i;
 function expandVehicles(raw) {
   if (!raw) return '';
   return String(raw).split(',').map(part => {
@@ -1625,6 +1634,9 @@ function expandVehicles(raw) {
       // Always normalize to "CODE - Type" regardless of what followed
       return type ? `${code} - ${type}` : t;
     }
+    // Rental trucks — recognized by size class rather than a fleet code
+    if (RENTAL_16_20_RE.test(t)) return 'Rental Truck 16-20';
+    if (RENTAL_21_27_RE.test(t)) return 'Rental 21-27';
     return t;
   }).filter(Boolean).join(', ');
 }
@@ -1972,6 +1984,66 @@ window.deleteLog = async () => {
   } catch(e) { showToast('Error: ' + e.message); }
 };
 
+// ── Download all photos for a project as a zip ────────────
+// Pulls each log's original photo from the logImages collection (the same
+// place the Drive backup reads from) and bundles them into a single zip,
+// named so files sort in the same order as the log list (date, then foreman).
+window.downloadProjectPhotos = async () => {
+  const proj = allProjects.find(p => p.id === window.currentProjectId);
+  if (!proj) return;
+  const logs = allLogs.filter(l => l.projectId === window.currentProjectId);
+  if (!logs.length) { alert('No logs in this project yet.'); return; }
+  if (typeof JSZip === 'undefined') { showToast('Zip library did not load — check your connection and try again.'); return; }
+
+  const btn = document.getElementById('download-photos-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Zipping&#8230;'; }
+
+  try {
+    const sorted = logs.slice().sort((a,b) => (normalizeDate(a.date)||'').localeCompare(normalizeDate(b.date)||''));
+    const zip = new JSZip();
+    const usedNames = new Set();
+    let included = 0;
+
+    for (const log of sorted) {
+      let dataUrl = null;
+      try {
+        const imgSnap = await getDoc(doc(db,'logImages',log.id));
+        if (imgSnap.exists()) dataUrl = imgSnap.data().imageData || null;
+      } catch(e) {}
+      if (!dataUrl) continue; // no photo saved for this log — skip it
+      const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      if (!m) continue;
+      const base64 = m[2];
+
+      let name = driveFilenameForLog(log).replace(/\.jpg$/i, '');
+      let fname = name + '.jpg', n = 2;
+      while (usedNames.has(fname)) { fname = `${name}_${n}.jpg`; n++; } // avoid collisions same-day/same-foreman
+      usedNames.add(fname);
+
+      zip.file(fname, base64, { base64: true });
+      included++;
+    }
+
+    if (!included) { showToast('No photos found to download for this project.'); return; }
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(proj.name||'project').replace(/[^a-z0-9]+/gi,'_')}_Photos.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showSuccess(`Downloaded ${included} photo${included===1?'':'s'}`);
+  } catch(e) {
+    showToast('Download failed: ' + e.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> Download Photos';
+    }
+  }
+};
+
 // ── Formatted Excel Export (bold headers, colors, sizing) ─
 window.exportCSV = async () => {
   const logs = allLogs.filter(l => l.projectId === window.currentProjectId);
@@ -2122,13 +2194,14 @@ window.exportCSV = async () => {
 
     // ═══ EQUIPMENT USAGE & CONTAINER LOG ═══
     sectionHeader('EQUIPMENT USAGE & CONTAINER LOG', AMBER);
-    colHeaders(['Date','Job Type','VAN\n(K2/K3)','K1\n16-20ft Truck','K4\n21-24ft Truck','Other/Rented','Dumpster\nUsed?','Dumpster\nSize','Furniture\nDollies','','','']);
+    colHeaders(['Date','Job Type','VAN\n(K2/K3)','K1 / Rental\n16-20ft Truck','K4 / Rental\n21-24ft Truck','Other/Rented','Dumpster\nUsed?','Dumpster\nSize','Furniture\nDollies','','','']);
     sorted.forEach(l => {
       const v = (l.vehicles||'').toUpperCase();
       const hasVan = (v.includes('VAN')||v.includes('K2')||v.includes('K3')) ? 'X' : '';
-      const hasK1  = v.includes('K1') ? 'X' : '';
-      const hasK4  = v.includes('K4') ? 'X' : '';
-      const known = /^(\s*(K[1-4]|VAN|CARGO VAN|16FT TRUCK|21FT TRUCK)\s*(-\s*[A-Z0-9 ]+)?,?)+$/i.test((l.vehicles||'').trim());
+      // Rentals count toward the same size-class column as the matching company truck
+      const hasK1  = (v.includes('K1') || v.includes('RENTAL TRUCK 16-20') || v.includes('RENTAL 16-20')) ? 'X' : '';
+      const hasK4  = (v.includes('K4') || v.includes('RENTAL 21-27') || v.includes('RENTAL TRUCK 21-27')) ? 'X' : '';
+      const known = /^(\s*(K[1-4]|VAN|CARGO VAN|16FT TRUCK|21FT TRUCK|RENTAL TRUCK 16-20|RENTAL 21-27)\s*(-\s*[A-Z0-9 ]+)?,?)+$/i.test((l.vehicles||'').trim());
       const other = known ? '' : (l.vehicles||'');
       const dumpster = (l.dumpsterSize||'').trim();
       const hasDumpster = (dumpster && !/^(no|none|n\/a|0)$/i.test(dumpster)) ? 'Yes' : '';
@@ -2348,8 +2421,9 @@ window.copyEquipmentRow = (ev, logId) => {
   const l = allLogs.find(x=>x.id===logId); if (!l) return;
   const v = (l.vehicles || '').toUpperCase();
   const hasVan = v.includes('VAN') || v.includes('K2') || v.includes('K3') ? 'TRUE' : '';
-  const hasK1  = v.includes('K1') ? 'TRUE' : '';
-  const hasK4  = v.includes('K4') ? 'TRUE' : '';
+  // Rentals count toward the same size-class column as the matching company truck
+  const hasK1  = (v.includes('K1') || v.includes('RENTAL TRUCK 16-20') || v.includes('RENTAL 16-20')) ? 'TRUE' : '';
+  const hasK4  = (v.includes('K4') || v.includes('RENTAL 21-27') || v.includes('RENTAL TRUCK 21-27')) ? 'TRUE' : '';
   const dumpster = (l.dumpsterSize || '').trim();
   const hasDumpster = (dumpster && !/^(no|none|n\/a|0)$/i.test(dumpster)) ? 'TRUE' : '';
   const row = [
