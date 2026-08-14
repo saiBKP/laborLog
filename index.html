@@ -284,11 +284,17 @@
 <div id="drive-settings-modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:500;align-items:center;justify-content:center;padding:20px;">
   <div class="form-card" style="max-width:480px;width:100%;margin:0;max-height:85vh;overflow-y:auto;">
     <h3>Google Drive Backup Settings</h3>
-    <p style="font-size:.82rem;color:var(--ink-muted);margin-bottom:14px;">
-      All labor log photos are automatically backed up to a Main Folder in your Google Drive. Each job gets its own subfolder inside it, named after the project.
+    <p style="font-size:.82rem;color:var(--ink-muted);margin-bottom:10px;">
+      All labor log photos are automatically backed up to a Main Folder in Google Drive. Each job gets its own subfolder inside it, named after the project.
     </p>
+    <div style="background:var(--blue-light);border-radius:var(--radius);padding:10px 12px;margin-bottom:16px;">
+      <p style="font-size:.78rem;color:#1D4ED8;line-height:1.5;">
+        <strong>How this works for a team:</strong> the Main Folder below is a <strong>shared setting</strong> — once anyone sets it, everyone else's app shows the same folder automatically, no action needed on their end.<br><br>
+        What's <strong>not</strong> shared: each person still has to click <strong>Connect Drive</strong> (top right) themselves, using their own Google account, at least once. That account also needs to have been given access to this folder via normal Google Drive sharing — otherwise their uploads have nowhere to go.
+      </p>
+    </div>
     <div class="field">
-      <label>Main Drive Folder</label>
+      <label>Main Drive Folder <span style="font-weight:400;text-transform:none;color:var(--ink-faint);">(shared — applies to everyone)</span></label>
       <div style="display:flex;gap:8px;align-items:center;">
         <select id="ds-main-folder" style="flex:1;"><option value="">— Not set —</option></select>
         <button class="btn btn-secondary btn-sm" style="height:42px;white-space:nowrap;" onclick="refreshDriveFolders()" id="ds-refresh-folders">Load Folders</button>
@@ -734,6 +740,19 @@ function boot() {
     refreshActiveView();
   }, e => console.error(e));
 
+  // Shared Drive config (Main folder) — one doc, watched live, so every
+  // device reflects whoever last set it without anyone needing to configure
+  // it themselves. See the long comment above getMainDriveFolder() for why
+  // this lives in Firestore instead of localStorage.
+  onSnapshot(driveConfigRef, snap => {
+    const data = snap.exists() ? snap.data() : null;
+    mainDriveFolderCache = (data && data.mainFolderId) ? { id: data.mainFolderId, name: data.mainFolderName || '' } : null;
+    refreshProjectDriveStatus();
+    // If the Drive Settings modal happens to be open, keep its dropdown in sync too
+    const modal = document.getElementById('drive-settings-modal');
+    if (modal && modal.style.display !== 'none') reflectMainFolderInSettingsUI();
+  }, e => console.error(e));
+
   setTimeout(() => {
     document.getElementById('app-loading').style.display = 'none';
     document.getElementById('app-body').style.display = 'block';
@@ -873,14 +892,32 @@ window.deleteProject = async () => {
 // contains one subfolder per project/job, named after the project. Photos
 // for a log go into their project's subfolder. Job subfolders are found-or-
 // created automatically — the user never manages per-project folders by hand.
-const MAIN_FOLDER_KEY = 'fll_main_drive_folder'; // localStorage: {id, name}
+//
+// The Main folder choice itself lives in Firestore (settings/driveConfig),
+// NOT localStorage — this is deliberate. localStorage is per-device, so if
+// this were stored there, everyone who opens the app on their own phone or
+// computer would see "Not set" until they picked it themselves, even after
+// someone else already configured it. Firestore makes it a shared setting:
+// whoever sets it once, everyone else's app picks it up automatically via
+// the live listener below — no per-device setup for this part.
+//
+// What Firestore CANNOT share on someone's behalf is their personal Google
+// Drive login — each person still has to click "Connect Drive" themselves at
+// least once, and their account needs access to the shared folder (added via
+// normal Google Drive sharing). That part is inherently per-person; there's
+// no way around it without giving up individual Google accounts entirely.
+const driveConfigRef = doc(db, 'settings', 'driveConfig');
+let mainDriveFolderCache = null; // {id, name} | null — kept in sync by the listener below
 let jobFolderCache = {}; // projectId -> driveFolderId, resolved lazily and cached in-memory
 
 function getMainDriveFolder() {
-  try { return JSON.parse(localStorage.getItem(MAIN_FOLDER_KEY) || 'null'); } catch(e) { return null; }
+  return mainDriveFolderCache;
 }
-function setMainDriveFolder(id, name) {
-  try { localStorage.setItem(MAIN_FOLDER_KEY, JSON.stringify({ id, name })); } catch(e){}
+async function setMainDriveFolder(id, name) {
+  await setDoc(driveConfigRef, { mainFolderId: id, mainFolderName: name, updatedAt: new Date().toISOString() });
+  // mainDriveFolderCache updates itself via the onSnapshot listener in boot(),
+  // but set it immediately too so callers right after this don't race the listener.
+  mainDriveFolderCache = { id, name };
 }
 
 function initDriveClient() {
@@ -917,31 +954,45 @@ function updateDriveButton(connected) {
 }
 
 // ── Drive Settings modal (choose the Main folder) ──────────
-window.openDriveSettings = () => {
+// Fills the modal's dropdown/hint from the current mainDriveFolderCache.
+// Factored out so both openDriveSettings() and the live listener (when the
+// modal happens to already be open on this device) can call it.
+function reflectMainFolderInSettingsUI() {
   const main = getMainDriveFolder();
   const sel = document.getElementById('ds-main-folder');
+  if (!sel) return;
+  const hadFocusOrOpen = document.activeElement === sel;
   sel.innerHTML = '<option value="">— Not set —</option>';
   if (main && main.id) {
     const o = document.createElement('option');
     o.value = main.id; o.textContent = main.name || 'Saved folder';
     o.selected = true; sel.appendChild(o);
   }
-  document.getElementById('ds-drive-hint').textContent = driveTokenValid()
-    ? 'Click "Load Folders" to pick or refresh.'
-    : 'Connect Google Drive (top right), then click "Load Folders".';
+  const hint = document.getElementById('ds-drive-hint');
+  if (hint && !hadFocusOrOpen) {
+    hint.textContent = driveTokenValid()
+      ? 'Click "Load Folders" to pick or refresh.'
+      : 'Connect Google Drive (top right), then click "Load Folders".';
+  }
+}
+
+window.openDriveSettings = () => {
+  reflectMainFolderInSettingsUI();
   document.getElementById('drive-settings-modal').style.display = 'flex';
 };
 window.closeDriveSettings = () => {
   document.getElementById('drive-settings-modal').style.display = 'none';
 };
-window.saveMainDriveFolder = () => {
+window.saveMainDriveFolder = async () => {
   const sel = document.getElementById('ds-main-folder');
   const id = sel.value;
   const name = id ? (sel.options[sel.selectedIndex]?.text || '') : '';
   if (!id) { showToast('Pick a folder first.'); return; }
-  setMainDriveFolder(id, name);
+  try {
+    await setMainDriveFolder(id, name);
+  } catch(e) { showToast('Could not save: ' + e.message); return; }
   jobFolderCache = {}; // main folder changed — any cached job subfolder ids are now stale
-  showSuccess('Main Drive folder saved: ' + name);
+  showSuccess('Main Drive folder saved for everyone: ' + name);
   window.closeDriveSettings();
   refreshProjectDriveStatus();
 };
@@ -1083,12 +1134,17 @@ window.refreshProjectDriveStatus = function refreshProjectDriveStatus() {
   const main = getMainDriveFolder();
   const logs = allLogs.filter(l => l.projectId === window.currentProjectId);
   const synced = logs.filter(l => l.driveFileId).length;
+  card.style.display = 'block';
   if (!main || !main.id) {
-    card.style.display = 'block';
-    text.innerHTML = 'No Main Drive folder set. <a href="#" onclick="openDriveSettings();return false;" style="color:var(--blue);font-weight:600;">Set it up</a> to enable backups.';
+    text.innerHTML = 'No Main Drive folder set yet. <a href="#" onclick="openDriveSettings();return false;" style="color:var(--blue);font-weight:600;">Set it up</a> — this applies for everyone once set.';
     return;
   }
-  card.style.display = 'block';
+  if (!driveTokenValid()) {
+    // The shared folder IS set — this device just hasn't personally connected
+    // Drive yet, which is the other half of the setup and can't be shared.
+    text.innerHTML = `Main folder is set to "${esc(main.name||'—')}", but Drive isn't connected on this device. <a href="#" onclick="handleDriveButton();return false;" style="color:var(--blue);font-weight:600;">Connect Drive</a> to start backing up from here.`;
+    return;
+  }
   text.textContent = `${synced} of ${logs.length} log photo${logs.length===1?'':'s'} backed up to Drive.`;
 };
 
